@@ -93,4 +93,7 @@ class SupportTicket(Base):
     detail: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(32), default="open")
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String(128), nullable=True, unique=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.2
     llm_timeout_seconds: int = 60
 
-    embedding_provider: str = "ollama"
+    embedding_provider: str = "openai_compatible"
     embedding_api_key: str = ""
     embedding_base_url: str = ""
     embedding_model: str = ""
@@ -57,6 +57,16 @@ class Settings(BaseSettings):
 
     serpapi_key: str = ""
     search_result_count: int = 5
+
+    mcp_after_sales_enabled: bool = False
+    mcp_after_sales_transport: str = "streamable_http"
+    mcp_after_sales_url: str = "https://mcp-after-sales.example.com/mcp"
+    mcp_after_sales_command: str = "python"
+    mcp_after_sales_args: str = "scripts/run_after_sales_mcp_server.py"
+    mcp_timeout_seconds: int = 20
+    mcp_approval_signing_secret: str = ""
+    mcp_approval_issuer: str = "customer-service-agent"
+    mcp_approval_token_ttl_seconds: int = 600
 
     jwt_secret_key: str = ""
     jwt_algorithm: str = "HS256"

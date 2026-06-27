@@ -1,0 +1,9 @@
+[project]
+name = "after-sales-mcp-server"
+version = "0.1.0"
+description = "Independent after-sales business capability MCP server."
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

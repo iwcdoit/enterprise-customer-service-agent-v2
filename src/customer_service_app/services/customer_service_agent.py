@@ -22,6 +22,7 @@ from customer_service_app.prompts.customer_service import (
     CUSTOMER_SERVICE_SYSTEM_PROMPT,
     format_knowledge_context,
 )
+from customer_service_app.services.business_gateway import BusinessGateway
 from customer_service_app.services.conversation_service import ConversationService
 from customer_service_app.services.conversation_memory import ConversationMemoryCompactor
 from customer_service_app.services.question_preprocessor import QuestionPreprocessor
@@ -44,6 +45,7 @@ class CustomerServiceAgent:
         rag_service: RagService,
         tool_registry: ToolRegistry,
         search_client: SerpApiSearchClient,
+        business_gateway: BusinessGateway,
         semantic_cache: RedisSemanticCache | None,
     ):
         """Inject the dependencies needed to handle a customer-service turn."""
@@ -54,6 +56,7 @@ class CustomerServiceAgent:
         self._rag_service = rag_service
         self._tool_registry = tool_registry
         self._search_client = search_client
+        self._business_gateway = business_gateway
         self._semantic_cache = semantic_cache
         self._conversation_service = ConversationService(session)
         self._memory_compactor = ConversationMemoryCompactor()
@@ -288,6 +291,7 @@ class CustomerServiceAgent:
             conversation_id=conversation_id,
             session=self._session,
             search_client=self._search_client,
+            business_gateway=self._business_gateway,
             confirmed_tools=confirmed_tools,
         )
 

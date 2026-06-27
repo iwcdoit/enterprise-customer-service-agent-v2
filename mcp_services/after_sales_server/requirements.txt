@@ -1,0 +1,6 @@
+mcp>=1.28.0
+pydantic-settings>=2.2.1
+SQLAlchemy>=2.0.30
+aiomysql>=0.2.0
+greenlet>=3.0.3
+python-jose[cryptography]>=3.3.0

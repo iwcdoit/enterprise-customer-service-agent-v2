@@ -16,7 +16,7 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ucustomer_service", "-pcustomer_service"]
+      test: ["CMD", "mysqladmin", "ping", "-ucustomer_service", "-pcustomer_service"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -44,6 +44,21 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
 
+  after-sales-mcp:
+    build: ./mcp_services/after_sales_server
+    container_name: ecs_after_sales_mcp
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-mysql+aiomysql://customer_service:customer_service@mysql:3306/customer_service?charset=utf8mb4}
+      HOST: 0.0.0.0
+      PORT: 8100
+      APPROVAL_SIGNING_SECRET: ${MCP_APPROVAL_SIGNING_SECRET:-local_approval_secret_change_me}
+      APPROVAL_ISSUER: ${MCP_APPROVAL_ISSUER:-customer-service-agent}
+    ports:
+      - "8100:8100"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
   app:
     build: .
     container_name: ecs_app
@@ -52,7 +67,7 @@ services:
       RUNTIME_ENV: ${RUNTIME_ENV:-local}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       API_PREFIX: ${API_PREFIX:-/api/v1}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://console.example.com}
       LLM_PROVIDER: ${LLM_PROVIDER:-openai_compatible}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
@@ -71,6 +86,12 @@ services:
       QDRANT_API_KEY: ${QDRANT_API_KEY:-}
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-customer_service_knowledge}
       SERPAPI_KEY: ${SERPAPI_KEY:-}
+      MCP_AFTER_SALES_ENABLED: ${MCP_AFTER_SALES_ENABLED:-false}
+      MCP_AFTER_SALES_TRANSPORT: ${MCP_AFTER_SALES_TRANSPORT:-streamable_http}
+      MCP_AFTER_SALES_URL: ${MCP_AFTER_SALES_URL:-http://after-sales-mcp:8100/mcp}
+      MCP_TIMEOUT_SECONDS: ${MCP_TIMEOUT_SECONDS:-20}
+      MCP_APPROVAL_SIGNING_SECRET: ${MCP_APPROVAL_SIGNING_SECRET:-local_approval_secret_change_me}
+      MCP_APPROVAL_ISSUER: ${MCP_APPROVAL_ISSUER:-customer-service-agent}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
     ports:
       - "8000:8000"
@@ -80,6 +101,8 @@ services:
       redis:
         condition: service_healthy
       qdrant:
+        condition: service_started
+      after-sales-mcp:
         condition: service_started
 
 volumes:

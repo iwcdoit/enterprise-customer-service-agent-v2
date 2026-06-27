@@ -3,12 +3,15 @@ from __future__ import annotations
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from customer_service_app.core.exceptions import AppError
 from customer_service_app.infrastructure.search.serpapi_client import SerpApiSearchClient
+
+if TYPE_CHECKING:
+    from customer_service_app.services.business_gateway import BusinessGateway
 
 
 @dataclass(slots=True)
@@ -24,6 +27,7 @@ class ToolExecutionContext:
     conversation_id: str | None
     session: AsyncSession
     search_client: SerpApiSearchClient
+    business_gateway: BusinessGateway | None = None
     confirmed_tools: set[str] = field(default_factory=set)
 
 

@@ -1,0 +1,155 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="980" viewBox="0 0 1500 980">
+  <defs>
+    <style>
+      .title{font:700 34px Arial,"PingFang SC","Microsoft YaHei",sans-serif;fill:#162033}
+      .subtitle{font:17px Arial,"PingFang SC","Microsoft YaHei",sans-serif;fill:#53627a}
+      .label{font:700 18px Arial,"PingFang SC","Microsoft YaHei",sans-serif;fill:#162033}
+      .small{font:15px Arial,"PingFang SC","Microsoft YaHei",sans-serif;fill:#31415f}
+      .box{fill:#f7f9fc;stroke:#8ba0c4;stroke-width:2;rx:10}
+      .core{fill:#eef6ff;stroke:#2f72bd;stroke-width:3;rx:10}
+      .graph{fill:#f0f7ff;stroke:#2f72bd;stroke-width:3;rx:10}
+      .store{fill:#f5fff3;stroke:#4a9854;stroke-width:2;rx:10}
+      .tool{fill:#fff8ed;stroke:#d17b20;stroke-width:2;rx:10}
+      .risk{fill:#fff4f4;stroke:#d84d4d;stroke-width:2;rx:10}
+      .obs{fill:#f7f1ff;stroke:#8a62cc;stroke-width:2;rx:10}
+      .line{stroke:#52627a;stroke-width:2;fill:none;marker-end:url(#arrow)}
+      .dash{stroke:#52627a;stroke-width:2;fill:none;stroke-dasharray:7 7;marker-end:url(#arrow)}
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#52627a"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1500" height="980" fill="#ffffff"/>
+  <text x="52" y="60" class="title">Enterprise Customer Service Agent V2</text>
+  <text x="52" y="90" class="subtitle">LangGraph orchestration · HIL checkpoint / interrupt / resume · MCP services · memory · cost governance · observability</text>
+
+  <rect x="52" y="132" width="210" height="86" class="box"/>
+  <text x="74" y="166" class="label">1. 用户入口</text>
+  <text x="74" y="193" class="small">App / Web / Ops Console</text>
+  <text x="74" y="214" class="small">tenant / user / question</text>
+
+  <rect x="318" y="132" width="220" height="86" class="box"/>
+  <text x="340" y="166" class="label">2. API Gateway</text>
+  <text x="340" y="193" class="small">FastAPI / Pydantic</text>
+  <text x="340" y="214" class="small">鉴权 / 限流 / 租户识别</text>
+
+  <rect x="602" y="116" width="302" height="116" class="graph"/>
+  <text x="624" y="153" class="label">3. LangGraph 编排</text>
+  <text x="624" y="181" class="small">CustomerServiceGraph</text>
+  <text x="624" y="203" class="small">state / route / checkpoint</text>
+  <text x="624" y="225" class="small">interrupt / resume</text>
+
+  <rect x="970" y="132" width="228" height="86" class="core"/>
+  <text x="992" y="166" class="label">4. Agent Core</text>
+  <text x="992" y="193" class="small">Planner / ReAct</text>
+  <text x="992" y="214" class="small">LLM decision / summary</text>
+
+  <rect x="1254" y="132" width="194" height="86" class="box"/>
+  <text x="1276" y="166" class="label">5. 返回响应</text>
+  <text x="1276" y="193" class="small">answer / trace</text>
+  <text x="1276" y="214" class="small">knowledge / tools</text>
+
+  <path class="line" d="M262 175 H318"/>
+  <path class="line" d="M538 175 H602"/>
+  <path class="line" d="M904 175 H970"/>
+  <path class="line" d="M1198 175 H1254"/>
+
+  <rect x="52" y="298" width="224" height="100" class="store"/>
+  <text x="74" y="333" class="label">短期记忆</text>
+  <text x="74" y="361" class="small">conversation messages</text>
+  <text x="74" y="383" class="small">窗口裁剪 / 摘要</text>
+
+  <rect x="326" y="298" width="224" height="100" class="store"/>
+  <text x="348" y="333" class="label">长期记忆</text>
+  <text x="348" y="361" class="small">profile / preference</text>
+  <text x="348" y="383" class="small">风险标记 / 服务等级</text>
+
+  <rect x="600" y="298" width="224" height="100" class="store"/>
+  <text x="622" y="333" class="label">语义缓存</text>
+  <text x="622" y="361" class="small">Redis + Embedding</text>
+  <text x="622" y="383" class="small">相似问题复用</text>
+
+  <rect x="874" y="298" width="244" height="100" class="store"/>
+  <text x="896" y="333" class="label">RAG 知识库</text>
+  <text x="896" y="361" class="small">policy / logistics / price</text>
+  <text x="896" y="383" class="small">Qdrant / Milvus</text>
+
+  <rect x="1168" y="298" width="280" height="100" class="box"/>
+  <text x="1190" y="333" class="label">Prompt Context</text>
+  <text x="1190" y="361" class="small">system / knowledge / memory</text>
+  <text x="1190" y="383" class="small">history / current question</text>
+
+  <path class="line" d="M753 232 V262 H164 V298"/>
+  <path class="line" d="M753 232 V262 H438 V298"/>
+  <path class="line" d="M753 232 V298"/>
+  <path class="line" d="M753 262 H996 V298"/>
+  <path class="line" d="M1118 348 H1168"/>
+  <path class="line" d="M1308 298 V260 H1084 V218"/>
+
+  <rect x="178" y="480" width="248" height="104" class="core"/>
+  <text x="200" y="516" class="label">Planner</text>
+  <text x="200" y="544" class="small">复杂诉求拆分</text>
+  <text x="200" y="566" class="small">任务队列 / route</text>
+
+  <rect x="492" y="480" width="248" height="104" class="core"/>
+  <text x="514" y="516" class="label">LLM Decision</text>
+  <text x="514" y="544" class="small">direct answer</text>
+  <text x="514" y="566" class="small">tool_calls / continue</text>
+
+  <rect x="806" y="480" width="248" height="104" class="risk"/>
+  <text x="828" y="516" class="label">HIL Guard</text>
+  <text x="828" y="544" class="small">checkpoint / interrupt</text>
+  <text x="828" y="566" class="small">approval / resume</text>
+
+  <rect x="1120" y="480" width="248" height="104" class="tool"/>
+  <text x="1142" y="516" class="label">ToolRegistry</text>
+  <text x="1142" y="544" class="small">schema / risk / idempotency</text>
+  <text x="1142" y="566" class="small">execute backend action</text>
+
+  <path class="line" d="M753 232 V438 H302 V480"/>
+  <path class="line" d="M426 532 H492"/>
+  <path class="line" d="M740 532 H806"/>
+  <path class="line" d="M1054 532 H1120"/>
+
+  <rect x="92" y="688" width="232" height="102" class="tool"/>
+  <text x="114" y="724" class="label">after-sales MCP</text>
+  <text x="114" y="752" class="small">refund / exchange</text>
+  <text x="114" y="774" class="small">compensation / handoff</text>
+
+  <rect x="376" y="688" width="232" height="102" class="tool"/>
+  <text x="398" y="724" class="label">Order / Logistics</text>
+  <text x="398" y="752" class="small">OMS / WMS / Express</text>
+  <text x="398" y="774" class="small">status / tracking</text>
+
+  <rect x="660" y="688" width="232" height="102" class="tool"/>
+  <text x="682" y="724" class="label">CRM / Ticket</text>
+  <text x="682" y="752" class="small">support ticket</text>
+  <text x="682" y="774" class="small">human service queue</text>
+
+  <rect x="944" y="688" width="232" height="102" class="tool"/>
+  <text x="966" y="724" class="label">Coupon / Policy</text>
+  <text x="966" y="752" class="small">price protection</text>
+  <text x="966" y="774" class="small">compensation rules</text>
+
+  <rect x="1228" y="688" width="220" height="102" class="obs"/>
+  <text x="1250" y="724" class="label">Observability</text>
+  <text x="1250" y="752" class="small">LangSmith / metrics</text>
+  <text x="1250" y="774" class="small">Prometheus / Grafana</text>
+
+  <path class="line" d="M1244 584 V640 H208 V688"/>
+  <path class="line" d="M1244 640 H492 V688"/>
+  <path class="line" d="M1244 640 H776 V688"/>
+  <path class="line" d="M1244 640 H1060 V688"/>
+  <path class="dash" d="M1244 584 V688"/>
+
+  <rect x="360" y="870" width="780" height="62" class="store"/>
+  <text x="382" y="908" class="label">Persistence and Audit</text>
+  <text x="632" y="908" class="small">messages / memory / confirmations / audit logs / cost records</text>
+
+  <path class="line" d="M208 790 V852 H750 V870"/>
+  <path class="line" d="M492 790 V852"/>
+  <path class="line" d="M776 790 V852"/>
+  <path class="line" d="M1060 790 V852"/>
+  <path class="line" d="M1338 790 V852 H750"/>
+</svg>

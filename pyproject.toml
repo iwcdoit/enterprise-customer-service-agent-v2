@@ -1,7 +1,7 @@
 [project]
 name = "enterprise-customer-service-agent-v2"
 version = "0.1.0"
-description = "A FastAPI-based enterprise customer service AI Agent with RAG and function calling."
+description = "A FastAPI-based customer service Agent with RAG, tool calling, and optional MCP capabilities."
 readme = "README.md"
 requires-python = ">=3.11"
 

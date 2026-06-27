@@ -1,42 +1,40 @@
 # Enterprise Customer Service Agent V2
 
-面向企业售后客服场景的 AI Agent 后端项目，聚焦政策问答、订单查询、退款处理、转人工、知识库检索和工具调用治理。
+一个面向企业售后客服场景的 AI Agent 后端项目，覆盖用户提问、意图理解、任务规划、知识库检索、短期/长期记忆、工具调用、人工确认、业务系统执行、链路追踪和结果落库的完整请求链路。
 
-项目以 FastAPI 为服务入口，结合 OpenAI-compatible 大模型接口、Embedding、Qdrant、Redis、MySQL 和 Function Calling，构建一个可运行、可验证、可继续扩展的智能客服后端。
+相比 V1 版本，V2 计划引入 LangGraph、HIL（checkpoint / interrupt / resume）、MCP 业务服务边界、短期与长期记忆、模型成本治理，以及观测与评估能力。
 
-## 功能概览
+## 架构
 
-- FastAPI 提供聊天接口、SSE 流式接口、Swagger 文档和本地运营验证台。
-- OpenAI-compatible Chat Completions API 接入大模型。
-- OpenAI-compatible Embeddings API 或 Ollama Embeddings 生成向量。
-- Qdrant 作为知识库向量检索引擎。
-- Redis 用于语义缓存，减少相似问题重复调用模型。
-- MySQL 保存会话、消息、订单和售后工单。
-- Function Calling 支持订单查询、退款工单、转人工和公开网页搜索。
-- 高风险工具调用会先返回确认提示，避免模型直接执行写操作。
-- 用户问题在进入 RAG 和 LLM 前会做轻量标准化。
-- 多轮历史过长时会压缩较早上下文，控制模型输入长度。
-- 本地验证台可查看回答、知识库证据、工具结果和 trace。
-- Docker Compose 提供 MySQL、Redis、Qdrant 本地依赖。
-- GitHub Actions 执行基础测试和代码检查。
+![Customer Service Agent V2 Architecture](assets/customer-service-runtime.svg)
 
-## 架构图
-
-![企业智能客服 Agent 运行链路](assets/customer-service-runtime.svg)
-
-核心链路：
+核心运行链路：
 
 ```text
-用户 / 运营验证台
--> FastAPI 路由
--> CustomerServiceAgent
--> 会话与短期上下文
--> 语义缓存
--> RAG 知识库检索
--> LLM 决策
--> 工具调用或直接回答
--> 消息落库并返回响应
+用户 / 运营台 / 业务前端
+-> API Gateway / FastAPI
+-> 请求校验、租户识别、限流、鉴权
+-> LangGraph 客服状态图
+   -> 加载短期会话记忆
+   -> 读取长期用户记忆
+   -> 用户问题标准化和意图识别
+   -> Planner 拆分复杂任务
+   -> RAG 检索售后知识库
+   -> 根据成本策略选择模型
+   -> 大模型首轮决策
+      -> 直接回答
+      -> 生成工具调用
+      -> 触发人工确认中断
+   -> ToolRegistry 执行业务工具
+      -> MCP Client
+      -> 售后 MCP 服务
+      -> 订单 / 物流 / 工单 / 优惠券 / 搜索系统
+   -> 大模型二次总结工具结果
+   -> 写入消息、记忆、审计日志和指标
+-> 返回答案、链路追踪、知识证据、工具结果、确认状态
 ```
+
+核心原则是让大模型负责理解、推理和决策，让后端工具与 MCP 服务负责真实业务动作，并通过租户隔离、人工确认、幂等控制和审计日志约束高风险操作。
 
 ## 技术栈
 
@@ -46,9 +44,13 @@
 - SQLAlchemy 2.x Async ORM
 - MySQL
 - Redis
-- Qdrant
+- Qdrant / Milvus
+- LangGraph
+- MCP Python SDK
 - OpenAI-compatible Chat Completions API
 - OpenAI-compatible Embeddings API
+- LangSmith
+- Prometheus / Grafana
 - pytest
 - ruff
 
@@ -60,6 +62,7 @@ enterprise-customer-service-agent-v2/
   docker-compose.yml
   pyproject.toml
   requirements.txt
+  assets/
   sample_knowledge/
   scripts/
     check_env.py
@@ -67,11 +70,22 @@ enterprise-customer-service-agent-v2/
     seed_sample_data.py
     ingest_docs.py
     run_dev.py
+    run_after_sales_mcp_server.py
+  mcp_services/
+    after_sales_server/
   src/customer_service_app/
     api/
     core/
     domain/
     infrastructure/
+      cache/
+      db/
+      embeddings/
+      llm/
+      mcp/
+      observability/
+      search/
+      vector_store/
     prompts/
     services/
     tools/
@@ -80,92 +94,101 @@ enterprise-customer-service-agent-v2/
   tests/
 ```
 
-## 配置说明
+## 配置
 
-复制配置模板：
+复制环境变量模板：
 
 ```bash
 cp .env.example .env
 ```
 
-常用配置项：
+主要配置：
 
 ```dotenv
-LLM_API_KEY=
-LLM_BASE_URL=
-LLM_MODEL=
+APP_ENV=production
+PUBLIC_API_BASE_URL=https://api.example.com
+ALLOWED_ORIGINS=https://console.example.com
+
+LLM_PROVIDER=openai_compatible
+LLM_API_KEY=<your-llm-api-key>
+LLM_BASE_URL=https://llm-provider.example.com/v1
+LLM_MODEL=<chat-model-name>
 
 EMBEDDING_PROVIDER=openai_compatible
-EMBEDDING_API_KEY=
-EMBEDDING_BASE_URL=
-EMBEDDING_MODEL=
+EMBEDDING_API_KEY=<your-embedding-api-key>
+EMBEDDING_BASE_URL=https://embedding-provider.example.com/v1
+EMBEDDING_MODEL=<embedding-model-name>
 EMBEDDING_DIMENSION=1024
 
-DATABASE_URL=mysql+aiomysql://customer_service:customer_service@127.0.0.1:3306/customer_service?charset=utf8mb4
-REDIS_URL=redis://127.0.0.1:6380/0
-QDRANT_URL=http://127.0.0.1:6333
+DATABASE_URL=mysql+aiomysql://<user>:<password>@<mysql-host>:3306/<database>?charset=utf8mb4
+REDIS_URL=redis://:<password>@<redis-host>:6379/0
+
+VECTOR_STORE_PROVIDER=qdrant
+QDRANT_URL=https://qdrant.example.com
+QDRANT_API_KEY=<your-qdrant-api-key>
 QDRANT_COLLECTION=customer_service_knowledge
+
+MILVUS_URI=https://milvus.example.com
+MILVUS_TOKEN=<your-milvus-token>
+MILVUS_COLLECTION=customer_service_knowledge
+
+MCP_AFTER_SALES_ENABLED=true
+MCP_AFTER_SALES_URL=https://mcp-after-sales.example.com/mcp
+MCP_APPROVAL_SIGNING_SECRET=<random-signing-secret>
+
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=<your-langsmith-api-key>
+PROMETHEUS_ENABLED=true
 ```
 
-`.env.example` 只保留空值和示例配置，真实密钥不要提交到仓库。
+## 部署说明
 
-## 本地启动
+主服务可以作为 FastAPI 应用部署，并依赖以下独立基础设施和业务服务：
 
-创建虚拟环境并安装依赖：
+- MySQL：保存会话、消息、订单、售后工单、确认记录、审计日志和长期记忆。
+- Redis：承接语义缓存、运行锁、限流策略和轻量计数。
+- Qdrant / Milvus：承接售后知识库向量检索。
+- after-sales MCP service：提供订单、物流、退款、补偿、换货、转人工等业务能力。
+- LangSmith / Prometheus / Grafana：提供链路追踪、指标、看板和运行分析。
 
-```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-```
-
-启动本地依赖：
-
-```bash
-docker compose up -d mysql redis qdrant
-```
-
-初始化数据：
+典型启动顺序：
 
 ```bash
 python scripts/check_env.py
 python scripts/init_db.py
 python scripts/seed_sample_data.py
-python scripts/ingest_docs.py sample_knowledge --tenant-id default
+python scripts/ingest_docs.py sample_knowledge --tenant-id <tenant-id>
+python scripts/run_after_sales_mcp_server.py
+uvicorn customer_service_app.main:app --host 0.0.0.0 --port <port>
 ```
 
-启动服务：
+容器化部署时，通过目标平台注入环境变量，并使用项目中的 Dockerfile 或 Compose 模板启动服务。
 
-```bash
-python scripts/run_dev.py
-```
+## MCP 服务
 
-本地访问：
+after-sales MCP 服务将售后能力暴露为独立治理的业务工具：
 
-- API Docs: <http://127.0.0.1:8000/docs>
-- Ops Console: <http://127.0.0.1:8000/ops>
-- Health Check: <http://127.0.0.1:8000/health/ready>
+- `query_order_status`
+- `query_logistics_status`
+- `query_price_protection`
+- `query_customer_profile`
+- `create_refund_case`
+- `create_compensation_case`
+- `create_exchange_case`
+- `transfer_to_human`
 
-## 示例问题
-
-```text
-你好，我想了解一下七天无理由退货政策。
-我的订单 202606040001 到哪里了？
-我的订单 202606040001 已经签收了，但我想申请退款。
-这个问题我需要人工客服处理。
-```
+只读工具在完成租户和用户校验后可以直接执行。写入工具需要签名确认 token 和幂等键，避免同一个已确认动作被重复执行。
 
 ## API 示例
 
 ```bash
-curl -X POST "http://127.0.0.1:8000/api/v1/chat" \
+curl -X POST "https://api.example.com/api/v1/chat" \
   -H "Content-Type: application/json" \
   -d '{
-    "tenant_id": "default",
-    "user_id": "u001",
+    "tenant_id": "tenant_001",
+    "user_id": "user_001",
     "conversation_id": null,
-    "question": "我的订单 202606040001 到哪里了？",
+    "question": "我的订单 202606040001 已经签收了，但是商品有破损，我想申请退款或者补偿。",
     "history": [],
     "metadata": {}
   }'
@@ -175,16 +198,8 @@ curl -X POST "http://127.0.0.1:8000/api/v1/chat" \
 
 ```bash
 pytest -q
-ruff check src tests scripts
+ruff check src tests scripts mcp_services/after_sales_server/src
 ```
-
-## 后续演进方向
-
-- 引入独立确认接口，承接退款、转人工等高风险动作。
-- 引入 LangGraph 多节点编排，增强复杂任务的状态管理。
-- 引入 MCP 服务边界，将订单、售后、工单等业务能力从 Agent 主服务中拆分出去。
-- 增强长短期记忆、成本治理和运行观测能力。
-- 增加更完整的 RAG 评测集和回归测试。
 
 ## License
 

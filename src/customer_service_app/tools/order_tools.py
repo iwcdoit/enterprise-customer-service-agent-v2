@@ -2,8 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from customer_service_app.infrastructure.db.repositories import OrderRepository, TicketRepository
+from customer_service_app.core.exceptions import AppError
 from customer_service_app.services.tool_registry import ToolExecutionContext, ToolSpec
+
+
+def _business_gateway(context: ToolExecutionContext):
+    if context.business_gateway is None:
+        raise AppError("Business gateway is not configured", code="business_gateway_missing")
+    return context.business_gateway
 
 
 async def query_order_status(
@@ -12,26 +18,16 @@ async def query_order_status(
 ) -> dict[str, Any]:
     """查询订单状态工具。
 
-    这个函数是真正访问 MySQL 的地方。模型不能直接查数据库，只能请求调用这个工具。
-    查询时必须带 tenant_id 和 user_id，避免用户查到别人的订单。
+    模型不能直接查数据库或 MCP，只能请求调用这个工具。
+    具体是走本地仓库还是 MCP 服务，由 BusinessGateway 决定。
     """
 
     order_id = str(arguments["order_id"])
-    order = await OrderRepository(context.session).get_by_order_id(
+    return await _business_gateway(context).query_order_status(
         tenant_id=context.tenant_id,
         user_id=context.user_id,
         order_id=order_id,
     )
-    if order is None:
-        return {"found": False, "order_id": order_id, "message": "未找到该用户名下的订单"}
-    return {
-        "found": True,
-        "order_id": order.order_id,
-        "status": order.status,
-        "logistics_company": order.logistics_company,
-        "tracking_number": order.tracking_number,
-        "metadata": order.metadata_json,
-    }
 
 
 async def create_refund_ticket(
@@ -41,22 +37,19 @@ async def create_refund_ticket(
     """创建退款工单工具。
 
     当模型判断用户明确要退款时，会返回 create_refund_ticket 的 tool_call。
-    后端执行这里的代码，把退款申请写入 support_tickets 表。
+    后端执行这里的代码，并通过 BusinessGateway 创建退款申请。
     """
 
     order_id = str(arguments["order_id"])
     reason = str(arguments["reason"])
-    ticket = await TicketRepository(context.session).create(
+    return await _business_gateway(context).create_refund_ticket(
         tenant_id=context.tenant_id,
         user_id=context.user_id,
         conversation_id=context.conversation_id,
-        category="refund",
-        title=f"退款申请：{order_id}",
-        detail=reason,
+        order_id=order_id,
+        reason=reason,
         priority=str(arguments.get("priority", "normal")),
-        metadata={"order_id": order_id},
     )
-    return {"ticket_id": ticket.id, "status": ticket.status, "category": ticket.category}
 
 
 async def transfer_to_human(
@@ -69,16 +62,13 @@ async def transfer_to_human(
     """
 
     reason = str(arguments["reason"])
-    ticket = await TicketRepository(context.session).create(
+    return await _business_gateway(context).transfer_to_human(
         tenant_id=context.tenant_id,
         user_id=context.user_id,
         conversation_id=context.conversation_id,
-        category="human_handoff",
-        title="转人工处理",
-        detail=reason,
+        reason=reason,
         priority=str(arguments.get("priority", "high")),
     )
-    return {"ticket_id": ticket.id, "status": ticket.status, "message": "已创建人工客服工单"}
 
 
 ORDER_STATUS_TOOL = ToolSpec(
