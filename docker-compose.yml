@@ -1,0 +1,88 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: ecs_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: customer_service
+      MYSQL_USER: customer_service
+      MYSQL_PASSWORD: customer_service
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ucustomer_service", "-pcustomer_service"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7.2
+    container_name: ecs_redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:v1.18.0
+    container_name: ecs_qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  app:
+    build: .
+    container_name: ecs_app
+    environment:
+      APP_NAME: ${APP_NAME:-Enterprise Customer Service Agent}
+      RUNTIME_ENV: ${RUNTIME_ENV:-local}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      API_PREFIX: ${API_PREFIX:-/api/v1}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai_compatible}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.2}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai_compatible}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-1024}
+      RAG_ENABLED: ${RAG_ENABLED:-true}
+      SEMANTIC_CACHE_ENABLED: ${SEMANTIC_CACHE_ENABLED:-false}
+      DATABASE_URL: ${DATABASE_URL:-mysql+aiomysql://customer_service:customer_service@mysql:3306/customer_service?charset=utf8mb4}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-customer_service_knowledge}
+      SERPAPI_KEY: ${SERPAPI_KEY:-}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+
+volumes:
+  mysql_data:
+  redis_data:
+  qdrant_data:

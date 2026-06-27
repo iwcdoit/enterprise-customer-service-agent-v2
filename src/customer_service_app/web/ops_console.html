@@ -1,0 +1,936 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>实践调试</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f6f8;
+      --surface: #ffffff;
+      --surface-soft: #f8fafc;
+      --line: #d7dee8;
+      --line-strong: #b8c4d4;
+      --text: #172033;
+      --muted: #667085;
+      --blue: #2563eb;
+      --blue-soft: #eaf1ff;
+      --green: #16823a;
+      --green-soft: #eaf8ee;
+      --amber: #a16207;
+      --amber-soft: #fff7df;
+      --red: #b42318;
+      --red-soft: #fff1f0;
+      --shadow: 0 10px 24px rgba(17, 24, 39, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      letter-spacing: 0;
+    }
+
+    button, input, textarea, select {
+      font: inherit;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      border-radius: 6px;
+      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+
+    button:hover { border-color: var(--line-strong); background: var(--surface-soft); }
+    button:disabled { cursor: not-allowed; opacity: 0.55; }
+
+    .app-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .topbar {
+      height: 68px;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 18px;
+      align-items: center;
+      padding: 0 22px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 240px;
+    }
+
+    .brand-mark {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 7px;
+      background: var(--blue);
+      color: white;
+      font-weight: 800;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.2;
+    }
+
+    .brand span {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .session-bar {
+      display: grid;
+      grid-template-columns: 120px 120px minmax(220px, 1fr);
+      gap: 10px;
+      align-items: center;
+    }
+
+    .field {
+      display: grid;
+      gap: 4px;
+    }
+
+    .field label {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1;
+    }
+
+    .field input {
+      width: 100%;
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0 10px;
+      color: var(--text);
+      background: var(--surface-soft);
+      outline: none;
+    }
+
+    .field input:focus, textarea:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+      background: var(--surface);
+    }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 28px;
+      padding: 0 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--surface-soft);
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+
+    .status.ok { color: var(--green); border-color: #b7e1c1; background: var(--green-soft); }
+    .status.ok .dot { background: var(--green); }
+    .status.warn { color: var(--amber); border-color: #ead07a; background: var(--amber-soft); }
+    .status.warn .dot { background: var(--amber); }
+    .status.error { color: var(--red); border-color: #f1b8b2; background: var(--red-soft); }
+    .status.error .dot { background: var(--red); }
+
+    .main-grid {
+      display: grid;
+      grid-template-columns: 260px minmax(420px, 1fr) 390px;
+      gap: 14px;
+      padding: 14px;
+      min-height: 0;
+    }
+
+    .panel {
+      min-height: 0;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .panel-header {
+      height: 46px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface-soft);
+    }
+
+    .panel-title {
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    .panel-meta {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .scenario-list {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+    }
+
+    .scenario {
+      min-height: 54px;
+      padding: 10px;
+      text-align: left;
+      display: grid;
+      gap: 4px;
+      align-content: center;
+    }
+
+    .scenario strong {
+      font-size: 13px;
+    }
+
+    .scenario span {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .scenario.active {
+      border-color: #9bbcff;
+      background: var(--blue-soft);
+    }
+
+    .chat-panel {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+
+    .messages {
+      min-height: 0;
+      overflow: auto;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.86), rgba(255,255,255,0.94)),
+        repeating-linear-gradient(0deg, #eef2f7 0, #eef2f7 1px, transparent 1px, transparent 32px);
+    }
+
+    .empty-state {
+      margin: auto;
+      max-width: 440px;
+      text-align: center;
+      color: var(--muted);
+      line-height: 1.7;
+      font-size: 14px;
+    }
+
+    .msg {
+      max-width: min(760px, 86%);
+      display: grid;
+      gap: 5px;
+    }
+
+    .msg.user { align-self: flex-end; }
+    .msg.assistant { align-self: flex-start; }
+
+    .msg-label {
+      color: var(--muted);
+      font-size: 11px;
+      padding: 0 4px;
+    }
+
+    .bubble {
+      padding: 12px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      white-space: pre-wrap;
+      line-height: 1.65;
+      font-size: 14px;
+    }
+
+    .msg.user .bubble {
+      background: var(--blue);
+      border-color: var(--blue);
+      color: white;
+    }
+
+    .composer {
+      border-top: 1px solid var(--line);
+      background: var(--surface);
+      padding: 12px;
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 10px;
+      align-items: end;
+    }
+
+    .cache-toggle {
+      height: 72px;
+      min-width: 92px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface-soft);
+      color: var(--muted);
+      font-size: 12px;
+      user-select: none;
+    }
+
+    .cache-toggle input {
+      width: 16px;
+      height: 16px;
+      margin: 0 0 5px;
+      accent-color: var(--blue);
+    }
+
+    textarea {
+      min-height: 72px;
+      max-height: 160px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px 12px;
+      outline: none;
+      line-height: 1.5;
+    }
+
+    .send-btn {
+      width: 92px;
+      height: 72px;
+      color: white;
+      background: var(--blue);
+      border-color: var(--blue);
+      font-weight: 700;
+    }
+
+    .send-btn:hover {
+      background: #1d4ed8;
+      border-color: #1d4ed8;
+    }
+
+    .evidence-panel {
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+    }
+
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .tab {
+      height: 40px;
+      border: 0;
+      border-radius: 0;
+      border-right: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .tab:last-child { border-right: 0; }
+    .tab.active { color: var(--blue); background: var(--blue-soft); font-weight: 700; }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      border-bottom: 1px solid var(--line);
+      background: var(--surface-soft);
+    }
+
+    .metric {
+      min-height: 58px;
+      padding: 9px 10px;
+      border-right: 1px solid var(--line);
+    }
+
+    .metric:last-child { border-right: 0; }
+    .metric strong {
+      display: block;
+      font-size: 18px;
+      line-height: 1.2;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .evidence-body {
+      min-height: 0;
+      overflow: auto;
+      padding: 12px;
+      background: var(--surface);
+    }
+
+    .timeline {
+      display: grid;
+      gap: 8px;
+    }
+
+    .trace-item, .knowledge-item, .tool-item {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 10px;
+      background: var(--surface-soft);
+    }
+
+    .trace-item {
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      gap: 8px;
+      align-items: start;
+    }
+
+    .stage {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 26px;
+      border-radius: 999px;
+      color: var(--blue);
+      background: var(--blue-soft);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .trace-detail, .knowledge-content, .tool-payload {
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.55;
+      word-break: break-word;
+    }
+
+    .knowledge-title, .tool-title {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 7px;
+      font-weight: 700;
+      font-size: 13px;
+    }
+
+    .score {
+      color: var(--green);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .tool-ok { color: var(--green); }
+    .tool-fail { color: var(--red); }
+
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      line-height: 1.55;
+      color: #26324a;
+    }
+
+    .toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .small-btn {
+      height: 30px;
+      padding: 0 10px;
+      font-size: 12px;
+    }
+
+    .danger {
+      color: var(--red);
+      border-color: #f0b8b2;
+      background: var(--red-soft);
+    }
+
+    .loading {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .spinner {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      border: 2px solid var(--line);
+      border-top-color: var(--blue);
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .hidden { display: none !important; }
+
+    @media (max-width: 1180px) {
+      .main-grid {
+        grid-template-columns: 230px minmax(360px, 1fr);
+      }
+      .evidence-panel {
+        grid-column: 1 / -1;
+        min-height: 420px;
+      }
+      .session-bar {
+        grid-template-columns: repeat(3, minmax(120px, 1fr));
+      }
+    }
+
+    @media (max-width: 760px) {
+      .topbar {
+        height: auto;
+        grid-template-columns: 1fr;
+        padding: 12px;
+      }
+      .session-bar {
+        grid-template-columns: 1fr;
+      }
+      .main-grid {
+        grid-template-columns: 1fr;
+        padding: 10px;
+      }
+      .msg { max-width: 100%; }
+      .composer {
+        grid-template-columns: 1fr;
+      }
+      .send-btn {
+        width: 100%;
+        height: 44px;
+      }
+      .cache-toggle {
+        height: 42px;
+      }
+      .metrics {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">CS</div>
+        <div>
+          <h1>客服验证台</h1>
+          <span>Enterprise Customer Service</span>
+        </div>
+      </div>
+
+      <div class="session-bar">
+        <div class="field">
+          <label for="tenantId">tenant_id</label>
+          <input id="tenantId" value="default" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="userId">user_id</label>
+          <input id="userId" value="u001" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="conversationId">conversation_id</label>
+          <input id="conversationId" placeholder="自动创建" autocomplete="off" />
+        </div>
+      </div>
+
+      <div class="status-row">
+        <span id="readyStatus" class="status"><span class="dot"></span>检查中</span>
+        <button id="newSessionBtn" class="small-btn" type="button">新会话</button>
+      </div>
+    </header>
+
+    <main class="main-grid">
+      <section class="panel">
+        <div class="panel-header">
+          <div class="panel-title">场景</div>
+          <div class="panel-meta">运营验证</div>
+        </div>
+        <div id="scenarioList" class="scenario-list"></div>
+      </section>
+
+      <section class="panel chat-panel">
+        <div class="panel-header">
+          <div class="panel-title">对话</div>
+          <div class="toolbar-actions">
+            <span id="loadingHint" class="loading hidden"><span class="spinner"></span>处理中</span>
+            <button id="clearBtn" class="small-btn danger" type="button">清空</button>
+          </div>
+        </div>
+        <div id="messages" class="messages">
+          <div class="empty-state">选择左侧场景，或直接输入用户问题。</div>
+        </div>
+        <form id="chatForm" class="composer">
+          <textarea id="questionInput" placeholder="输入用户问题，例如：帮我查一下订单 202606040001 到哪里了"></textarea>
+          <label class="cache-toggle">
+            <input id="skipCacheInput" type="checkbox" checked />
+            跳过缓存
+          </label>
+          <button id="sendBtn" class="send-btn" type="submit">发送</button>
+        </form>
+      </section>
+
+      <section class="panel evidence-panel">
+        <div class="panel-header">
+          <div class="panel-title">链路证据</div>
+          <div id="lastSummary" class="panel-meta">等待请求</div>
+        </div>
+        <div class="metrics">
+          <div class="metric"><strong id="metricCache">-</strong><span>缓存</span></div>
+          <div class="metric"><strong id="metricKnowledge">0</strong><span>知识块</span></div>
+          <div class="metric"><strong id="metricTools">0</strong><span>工具</span></div>
+          <div class="metric"><strong id="metricTrace">0</strong><span>阶段</span></div>
+        </div>
+        <div class="tabs">
+          <button class="tab active" type="button" data-tab="trace">Trace</button>
+          <button class="tab" type="button" data-tab="knowledge">Knowledge</button>
+          <button class="tab" type="button" data-tab="tools">Tools</button>
+          <button class="tab" type="button" data-tab="raw">Raw</button>
+        </div>
+        <div id="evidenceBody" class="evidence-body"></div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const scenarios = [
+      {
+        title: "售后政策",
+        desc: "验证 RAG 知识库",
+        question: "退款审核通过后多久到账？"
+      },
+      {
+        title: "订单查询",
+        desc: "验证 query_order_status",
+        question: "帮我查一下订单 202606040001 到哪里了"
+      },
+      {
+        title: "退款申请",
+        desc: "验证 create_refund_ticket",
+        question: "我要申请退款，订单号是 202606040001，原因是商品有质量问题"
+      },
+      {
+        title: "转人工",
+        desc: "验证 transfer_to_human",
+        question: "我要投诉，这个问题必须人工处理"
+      },
+      {
+        title: "多轮追问",
+        desc: "沿用 conversation_id",
+        question: "那这个订单可以退款吗？"
+      },
+      {
+        title: "越权测试",
+        desc: "切换 user_id 后查订单",
+        question: "帮我查一下订单 202606040001 到哪里了",
+        userId: "u002"
+      }
+    ];
+
+    const state = {
+      activeTab: "trace",
+      lastResponse: null,
+      sending: false
+    };
+
+    const els = {
+      tenantId: document.getElementById("tenantId"),
+      userId: document.getElementById("userId"),
+      conversationId: document.getElementById("conversationId"),
+      readyStatus: document.getElementById("readyStatus"),
+      scenarioList: document.getElementById("scenarioList"),
+      messages: document.getElementById("messages"),
+      questionInput: document.getElementById("questionInput"),
+      skipCacheInput: document.getElementById("skipCacheInput"),
+      chatForm: document.getElementById("chatForm"),
+      sendBtn: document.getElementById("sendBtn"),
+      clearBtn: document.getElementById("clearBtn"),
+      newSessionBtn: document.getElementById("newSessionBtn"),
+      loadingHint: document.getElementById("loadingHint"),
+      evidenceBody: document.getElementById("evidenceBody"),
+      lastSummary: document.getElementById("lastSummary"),
+      metricCache: document.getElementById("metricCache"),
+      metricKnowledge: document.getElementById("metricKnowledge"),
+      metricTools: document.getElementById("metricTools"),
+      metricTrace: document.getElementById("metricTrace")
+    };
+
+    function renderScenarios() {
+      els.scenarioList.innerHTML = "";
+      scenarios.forEach((item) => {
+        const button = document.createElement("button");
+        button.className = "scenario";
+        button.type = "button";
+        button.innerHTML = `<strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.desc)}</span>`;
+        button.addEventListener("click", () => {
+          document.querySelectorAll(".scenario").forEach((node) => node.classList.remove("active"));
+          button.classList.add("active");
+          if (item.userId) {
+            els.userId.value = item.userId;
+          }
+          els.questionInput.value = item.question;
+          els.questionInput.focus();
+        });
+        els.scenarioList.appendChild(button);
+      });
+    }
+
+    async function checkReady() {
+      try {
+        const response = await fetch("/health/ready");
+        const payload = await response.json();
+        const ok = payload.status === "ok";
+        els.readyStatus.className = `status ${ok ? "ok" : "warn"}`;
+        els.readyStatus.innerHTML = `<span class="dot"></span>${ok ? "就绪" : "未就绪"}`;
+      } catch {
+        els.readyStatus.className = "status error";
+        els.readyStatus.innerHTML = `<span class="dot"></span>离线`;
+      }
+    }
+
+    async function sendQuestion(question) {
+      if (state.sending) return;
+      const trimmed = question.trim();
+      if (!trimmed) return;
+      setSending(true);
+      appendMessage("user", trimmed);
+      try {
+        const body = {
+          tenant_id: els.tenantId.value.trim() || "default",
+          user_id: els.userId.value.trim() || "u001",
+          question: trimmed,
+          metadata: {
+            skip_cache: els.skipCacheInput.checked
+          }
+        };
+        const conversationId = els.conversationId.value.trim();
+        if (conversationId) {
+          body.conversation_id = conversationId;
+        }
+
+        const response = await fetch("/api/v1/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.message || payload.detail || `HTTP ${response.status}`);
+        }
+        state.lastResponse = payload;
+        els.conversationId.value = payload.conversation_id || els.conversationId.value;
+        appendMessage("assistant", payload.answer || "");
+        renderEvidence();
+      } catch (error) {
+        appendMessage("assistant", `请求失败：${error.message}`);
+      } finally {
+        setSending(false);
+        els.questionInput.value = "";
+      }
+    }
+
+    function appendMessage(role, content) {
+      const empty = els.messages.querySelector(".empty-state");
+      if (empty) empty.remove();
+      const wrapper = document.createElement("div");
+      wrapper.className = `msg ${role}`;
+      const label = role === "user" ? "用户" : "客服";
+      wrapper.innerHTML = `
+        <div class="msg-label">${label}</div>
+        <div class="bubble"></div>
+      `;
+      const bubble = wrapper.querySelector(".bubble");
+      if (role === "assistant") {
+        bubble.innerHTML = formatAssistantMessage(content);
+      } else {
+        bubble.textContent = content;
+      }
+      els.messages.appendChild(wrapper);
+      els.messages.scrollTop = els.messages.scrollHeight;
+    }
+
+    function setSending(value) {
+      state.sending = value;
+      els.sendBtn.disabled = value;
+      els.loadingHint.classList.toggle("hidden", !value);
+    }
+
+    function renderEvidence() {
+      const payload = state.lastResponse;
+      if (!payload) {
+        els.evidenceBody.innerHTML = `<div class="empty-state">暂无链路数据</div>`;
+        return;
+      }
+      els.metricCache.textContent = payload.cache_hit ? "命中" : "未命中";
+      els.metricKnowledge.textContent = String((payload.knowledge || []).length);
+      els.metricTools.textContent = String((payload.tool_calls || []).length);
+      els.metricTrace.textContent = String((payload.trace || []).length);
+      els.lastSummary.textContent = payload.conversation_id ? payload.conversation_id.slice(0, 8) : "无会话";
+
+      if (state.activeTab === "trace") renderTrace(payload.trace || []);
+      if (state.activeTab === "knowledge") renderKnowledge(payload.knowledge || []);
+      if (state.activeTab === "tools") renderTools(payload.tool_calls || [], payload.tool_results || []);
+      if (state.activeTab === "raw") renderRaw(payload);
+    }
+
+    function renderTrace(trace) {
+      if (!trace.length) {
+        els.evidenceBody.innerHTML = `<div class="empty-state">无 trace</div>`;
+        return;
+      }
+      els.evidenceBody.innerHTML = `<div class="timeline"></div>`;
+      const list = els.evidenceBody.querySelector(".timeline");
+      trace.forEach((item) => {
+        const node = document.createElement("div");
+        node.className = "trace-item";
+        node.innerHTML = `
+          <div class="stage">${escapeHtml(item.stage || "-")}</div>
+          <div class="trace-detail">${escapeHtml(item.detail || "")}${renderMetadata(item.metadata)}</div>
+        `;
+        list.appendChild(node);
+      });
+    }
+
+    function renderKnowledge(items) {
+      if (!items.length) {
+        els.evidenceBody.innerHTML = `<div class="empty-state">无知识库命中</div>`;
+        return;
+      }
+      els.evidenceBody.innerHTML = `<div class="timeline"></div>`;
+      const list = els.evidenceBody.querySelector(".timeline");
+      items.forEach((item) => {
+        const node = document.createElement("div");
+        node.className = "knowledge-item";
+        node.innerHTML = `
+          <div class="knowledge-title">
+            <span>${escapeHtml(item.title || "-")}</span>
+            <span class="score">${Number(item.score || 0).toFixed(4)}</span>
+          </div>
+          <div class="knowledge-content">${escapeHtml(item.content || "")}</div>
+        `;
+        list.appendChild(node);
+      });
+    }
+
+    function renderTools(calls, results) {
+      if (!calls.length && !results.length) {
+        els.evidenceBody.innerHTML = `<div class="empty-state">无工具调用</div>`;
+        return;
+      }
+      els.evidenceBody.innerHTML = `<div class="timeline"></div>`;
+      const list = els.evidenceBody.querySelector(".timeline");
+      calls.forEach((call) => {
+        const result = results.find((item) => item.tool_call_id === call.id || item.name === call.name);
+        const node = document.createElement("div");
+        node.className = "tool-item";
+        node.innerHTML = `
+          <div class="tool-title">
+            <span>${escapeHtml(call.name || "-")}</span>
+            <span class="${result && result.ok ? "tool-ok" : "tool-fail"}">${result ? (result.ok ? "ok" : "fail") : "pending"}</span>
+          </div>
+          <pre>${escapeHtml(JSON.stringify({ arguments: call.arguments, payload: result && result.payload }, null, 2))}</pre>
+        `;
+        list.appendChild(node);
+      });
+    }
+
+    function renderRaw(payload) {
+      els.evidenceBody.innerHTML = `<pre>${escapeHtml(JSON.stringify(payload, null, 2))}</pre>`;
+    }
+
+    function renderMetadata(metadata) {
+      if (!metadata || !Object.keys(metadata).length) return "";
+      return `<pre>${escapeHtml(JSON.stringify(metadata, null, 2))}</pre>`;
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function formatAssistantMessage(value) {
+      let html = escapeHtml(value);
+      html = html.replaceAll(/\\*\\*(.*?)\\*\\*/g, "<strong>$1</strong>");
+      html = html.replaceAll(/`([^`]+)`/g, "<code>$1</code>");
+      return html;
+    }
+
+    document.querySelectorAll(".tab").forEach((button) => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll(".tab").forEach((node) => node.classList.remove("active"));
+        button.classList.add("active");
+        state.activeTab = button.dataset.tab;
+        renderEvidence();
+      });
+    });
+
+    els.chatForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      sendQuestion(els.questionInput.value);
+    });
+
+    els.clearBtn.addEventListener("click", () => {
+      els.messages.innerHTML = `<div class="empty-state">选择左侧场景，或直接输入用户问题。</div>`;
+      state.lastResponse = null;
+      renderEvidence();
+    });
+
+    els.newSessionBtn.addEventListener("click", () => {
+      els.conversationId.value = "";
+      state.lastResponse = null;
+      renderEvidence();
+    });
+
+    renderScenarios();
+    renderEvidence();
+    checkReady();
+  </script>
+</body>
+</html>

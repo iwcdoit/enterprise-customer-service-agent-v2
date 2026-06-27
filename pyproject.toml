@@ -1,0 +1,15 @@
+[project]
+name = "enterprise-customer-service-agent-v2"
+version = "0.1.0"
+description = "A FastAPI-based enterprise customer service AI Agent with RAG and function calling."
+readme = "README.md"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
