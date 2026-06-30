@@ -6,6 +6,7 @@ from openai import AsyncOpenAI
 
 from customer_service_app.core.config import Settings
 from customer_service_app.core.exceptions import ExternalServiceError
+from customer_service_app.domain.cost import TokenUsage
 from customer_service_app.infrastructure.llm.base import LLMClient, LLMResponse, LLMToolCall
 
 
@@ -78,6 +79,7 @@ class OpenAICompatibleLLMClient(LLMClient):
 
         choice = response.choices[0]
         message = choice.message
+        usage = getattr(response, "usage", None)
         tool_calls: list[LLMToolCall] = []
         for call in message.tool_calls or []:
             tool_calls.append(
@@ -92,6 +94,11 @@ class OpenAICompatibleLLMClient(LLMClient):
             tool_calls=tool_calls,
             finish_reason=choice.finish_reason,
             model=getattr(response, "model", None) or str(kwargs["model"]),
+            usage=TokenUsage(
+                prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
+                completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
+                total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
+            ),
         )
 
     async def stream_chat(

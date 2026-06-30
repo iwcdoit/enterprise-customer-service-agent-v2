@@ -164,6 +164,10 @@ class CustomerServiceAgent:
             tool_choice="auto",
             model=cost_strategy.model,
         )
+        await self._cost_service.record_llm_usage(
+            tenant_id=request.tenant_id,
+            usage=first_response.usage,
+        )
         trace.append(
             ChatTraceStep(
                 stage="llm_decision",
@@ -188,6 +192,10 @@ class CustomerServiceAgent:
                 )
             )
             final_response = await self._llm_client.chat(messages, model=cost_strategy.model)
+            await self._cost_service.record_llm_usage(
+                tenant_id=request.tenant_id,
+                usage=final_response.usage,
+            )
             answer = final_response.content
         else:
             answer = first_response.content

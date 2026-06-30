@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Protocol
+
+from customer_service_app.domain.cost import TokenUsage
 
 
 @dataclass(slots=True)
@@ -34,6 +36,7 @@ class LLMResponse:
     tool_calls: list[LLMToolCall]
     finish_reason: str | None = None
     model: str | None = None
+    usage: TokenUsage = field(default_factory=TokenUsage)
 
 
 class LLMClient(Protocol):

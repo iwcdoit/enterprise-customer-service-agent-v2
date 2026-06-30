@@ -52,5 +52,5 @@ def build_customer_service_agent(session: AsyncSession) -> CustomerServiceAgent:
         search_client=SerpApiSearchClient(settings),
         business_gateway=business_gateway,
         semantic_cache=semantic_cache,
-        cost_service=CostGovernanceService(settings=settings),
+        cost_service=CostGovernanceService(settings=settings, session=session),
     )

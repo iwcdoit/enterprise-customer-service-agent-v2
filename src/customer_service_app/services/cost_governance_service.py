@@ -3,19 +3,28 @@ from __future__ import annotations
 import json
 from typing import cast
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from customer_service_app.core.config import Settings
-from customer_service_app.domain.cost import CostStrategy, TenantTier
+from customer_service_app.domain.cost import CostStrategy, TenantTier, TokenUsage
+from customer_service_app.infrastructure.db.repositories import UsageRepository
 
 
 class CostGovernanceService:
     """Choose tenant-aware runtime strategy without hard-blocking traffic."""
 
-    def __init__(self, *, settings: Settings):
+    def __init__(self, *, settings: Settings, session: AsyncSession | None = None):
         self._settings = settings
+        self._repo = UsageRepository(session) if session is not None else None
 
-    async def choose_strategy(self, *, tenant_id: str, used_tokens: int = 0) -> CostStrategy:
+    async def choose_strategy(self, *, tenant_id: str, used_tokens: int | None = None) -> CostStrategy:
         """Choose model, RAG breadth, and memory window for one tenant request."""
         tier = self._resolve_tenant_tier(tenant_id)
+        if used_tokens is None:
+            used_tokens = 0
+            if self._settings.cost_governance_enabled and self._repo is not None:
+                usage = await self._repo.get_today_usage(tenant_id=tenant_id)
+                used_tokens = usage.total_tokens if usage else 0
         budget = self._budget_for_tier(tier)
         usage_ratio = round(used_tokens / budget, 4) if budget > 0 else 0.0
         strategy = self._base_strategy(
@@ -33,6 +42,19 @@ class CostGovernanceService:
         if usage_ratio >= self._settings.cost_warning_ratio:
             return self._soft_degrade(strategy, reason="daily_budget_warning")
         return strategy
+
+    async def record_llm_usage(self, *, tenant_id: str, usage: TokenUsage) -> None:
+        """Persist LLM token usage for daily accounting."""
+        if not self._settings.cost_governance_enabled or self._repo is None:
+            return
+        if usage.total_tokens <= 0:
+            return
+        await self._repo.add_llm_usage(
+            tenant_id=tenant_id,
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            total_tokens=usage.total_tokens,
+        )
 
     def _resolve_tenant_tier(self, tenant_id: str) -> TenantTier:
         tier_map = self._parse_tier_map()

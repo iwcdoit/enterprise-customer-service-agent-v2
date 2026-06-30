@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from customer_service_app.infrastructure.db.models import Conversation, Message, Order, SupportTicket
+from customer_service_app.infrastructure.db.models import (
+    Conversation,
+    Message,
+    Order,
+    SupportTicket,
+    TenantUsageDaily,
+)
 
 
 class ConversationRepository:
@@ -128,3 +136,46 @@ class TicketRepository:
         self._session.add(ticket)
         await self._session.flush()
         return ticket
+
+
+class UsageRepository:
+    """Data access object for daily tenant usage."""
+
+    def __init__(self, session: AsyncSession):
+        self._session = session
+
+    async def get_today_usage(self, *, tenant_id: str) -> TenantUsageDaily | None:
+        today = date.today()
+        result = await self._session.execute(
+            select(TenantUsageDaily).where(
+                TenantUsageDaily.tenant_id == tenant_id,
+                TenantUsageDaily.usage_date == today,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def add_llm_usage(
+        self,
+        *,
+        tenant_id: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        total_tokens: int,
+    ) -> TenantUsageDaily:
+        today = date.today()
+        result = await self._session.execute(
+            select(TenantUsageDaily).where(
+                TenantUsageDaily.tenant_id == tenant_id,
+                TenantUsageDaily.usage_date == today,
+            )
+        )
+        usage = result.scalar_one_or_none()
+        if usage is None:
+            usage = TenantUsageDaily(tenant_id=tenant_id, usage_date=today)
+            self._session.add(usage)
+        usage.llm_calls += 1
+        usage.prompt_tokens += prompt_tokens
+        usage.completion_tokens += completion_tokens
+        usage.total_tokens += total_tokens
+        await self._session.flush()
+        return usage
