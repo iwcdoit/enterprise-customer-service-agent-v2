@@ -59,6 +59,23 @@ class Settings(BaseSettings):
     rag_top_k: int = 5
     rag_score_threshold: float = 0.35
 
+    cost_governance_enabled: bool = True
+    tenant_default_tier: str = "standard"
+    tenant_tier_map: str = ""
+    llm_model_basic: str = ""
+    llm_model_standard: str = ""
+    llm_model_premium: str = ""
+    llm_model_degraded: str = ""
+    basic_tenant_rag_top_k: int = 3
+    standard_tenant_rag_top_k: int = 5
+    premium_tenant_rag_top_k: int = 6
+    degraded_rag_top_k: int = 2
+    degraded_history_turns: int = 3
+    basic_daily_token_budget: int = 50_000
+    standard_daily_token_budget: int = 300_000
+    premium_daily_token_budget: int = 1_500_000
+    cost_warning_ratio: float = 0.8
+
     serpapi_key: str = ""
     search_result_count: int = 5
 
