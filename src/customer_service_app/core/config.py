@@ -49,9 +49,13 @@ class Settings(BaseSettings):
     semantic_cache_threshold: float = 0.90
 
     rag_enabled: bool = True
+    vector_store_provider: str = "qdrant"
     qdrant_url: str = ""
     qdrant_api_key: str = ""
     qdrant_collection: str = "customer_service_knowledge"
+    milvus_uri: str = ""
+    milvus_token: str = ""
+    milvus_collection: str = "customer_service_knowledge"
     rag_top_k: int = 5
     rag_score_threshold: float = 0.35
 

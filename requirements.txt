@@ -7,6 +7,7 @@ httpx>=0.27.0
 redis>=5.0.4
 numpy>=1.26.0
 qdrant-client>=1.9.0
+pymilvus>=2.4.0
 SQLAlchemy>=2.0.30
 aiomysql>=0.2.0
 greenlet>=3.0.3

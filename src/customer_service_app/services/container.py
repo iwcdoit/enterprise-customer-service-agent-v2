@@ -8,7 +8,7 @@ from customer_service_app.infrastructure.embeddings.factory import build_embeddi
 from customer_service_app.infrastructure.llm.openai_compatible import OpenAICompatibleLLMClient
 from customer_service_app.infrastructure.mcp.client import build_after_sales_mcp_client
 from customer_service_app.infrastructure.search.serpapi_client import SerpApiSearchClient
-from customer_service_app.infrastructure.vector_store.qdrant_store import QdrantKnowledgeVectorStore
+from customer_service_app.infrastructure.vector_store.factory import build_vector_store
 from customer_service_app.services.business_gateway import BusinessGateway
 from customer_service_app.services.customer_service_agent import CustomerServiceAgent
 from customer_service_app.services.rag_service import RagService
@@ -28,7 +28,7 @@ def build_customer_service_agent(session: AsyncSession) -> CustomerServiceAgent:
     """
     settings = get_settings()
     embedding_client = build_embedding_client(settings)
-    vector_store = QdrantKnowledgeVectorStore(settings)
+    vector_store = build_vector_store(settings)
     rag_service = RagService(
         settings=settings,
         embedding_client=embedding_client,

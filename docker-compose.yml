@@ -82,9 +82,13 @@ services:
       SEMANTIC_CACHE_ENABLED: ${SEMANTIC_CACHE_ENABLED:-false}
       DATABASE_URL: ${DATABASE_URL:-mysql+aiomysql://customer_service:customer_service@mysql:3306/customer_service?charset=utf8mb4}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      VECTOR_STORE_PROVIDER: ${VECTOR_STORE_PROVIDER:-qdrant}
       QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
       QDRANT_API_KEY: ${QDRANT_API_KEY:-}
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-customer_service_knowledge}
+      MILVUS_URI: ${MILVUS_URI:-}
+      MILVUS_TOKEN: ${MILVUS_TOKEN:-}
+      MILVUS_COLLECTION: ${MILVUS_COLLECTION:-customer_service_knowledge}
       SERPAPI_KEY: ${SERPAPI_KEY:-}
       MCP_AFTER_SALES_ENABLED: ${MCP_AFTER_SALES_ENABLED:-false}
       MCP_AFTER_SALES_TRANSPORT: ${MCP_AFTER_SALES_TRANSPORT:-streamable_http}

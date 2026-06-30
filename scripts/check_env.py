@@ -36,7 +36,11 @@ def main() -> int:
     这个脚本只显示配置是否存在，不打印密钥原文。
     """
     parser = argparse.ArgumentParser(description="Check runtime configuration without printing secrets.")
-    parser.add_argument("--strict", action="store_true", help="Return non-zero when required config is missing.")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Return non-zero when required config is missing.",
+    )
     args = parser.parse_args()
 
     settings = get_settings()
@@ -75,6 +79,12 @@ def main() -> int:
     )
 
     if settings.rag_enabled:
+        vector_provider = settings.vector_store_provider.strip().lower()
+        vector_checks = (
+            [("MILVUS_URI", _has_value(settings.milvus_uri), "Milvus endpoint")]
+            if vector_provider == "milvus"
+            else [("QDRANT_URL", _has_value(settings.qdrant_url), "Qdrant endpoint")]
+        )
         embedding_api_key_ok = True
         if settings.embedding_provider.lower() in {
             "openai_compatible",
@@ -98,7 +108,8 @@ def main() -> int:
                         embedding_api_key_ok,
                         "required for cloud embedding",
                     ),
-                    ("QDRANT_URL", _has_value(settings.qdrant_url), "vector database endpoint"),
+                    ("VECTOR_STORE_PROVIDER", vector_provider in {"qdrant", "milvus"}, "qdrant or milvus"),
+                    *vector_checks,
                 ],
             )
         )

@@ -23,7 +23,7 @@ class RagService:
         """保存 RAG 所需依赖。
 
         embedding_client 用于把用户问题变成向量；
-        vector_store 用于根据向量从 Qdrant 中找相似知识块。
+        vector_store 用于根据向量从 Qdrant、Milvus 等向量库中找相似知识块。
         """
 
         self._settings = settings
@@ -33,7 +33,7 @@ class RagService:
     async def retrieve(self, *, tenant_id: str, question: str) -> list[KnowledgeChunk]:
         """根据用户问题检索知识库。
 
-        流程是：问题文本 -> embedding 向量 -> Qdrant 相似度检索 -> KnowledgeChunk。
+        流程是：问题文本 -> embedding 向量 -> 向量库相似度检索 -> KnowledgeChunk。
         如果配置关闭了 RAG，就直接返回空列表。
         """
 

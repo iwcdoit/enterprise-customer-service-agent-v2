@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from customer_service_app.core.config import get_settings
+from customer_service_app.core.config import Settings, get_settings
 from customer_service_app.domain.schemas import HealthResponse
 
 
@@ -24,7 +24,20 @@ async def ready() -> dict:
     checks = {
         "llm_configured": bool(settings.llm_api_key and settings.llm_base_url and settings.llm_model),
         "database_configured": bool(settings.database_url),
-        "rag_configured": bool(settings.qdrant_url and settings.embedding_base_url and settings.embedding_model),
+        "rag_configured": _rag_configured(settings),
         "redis_configured": bool(settings.redis_url) if settings.semantic_cache_enabled else None,
     }
     return {"status": "ok" if all(v is not False for v in checks.values()) else "not_ready", "checks": checks}
+
+
+def _rag_configured(settings: Settings) -> bool:
+    if not settings.rag_enabled:
+        return True
+    vector_provider = settings.vector_store_provider.strip().lower()
+    if vector_provider == "milvus":
+        vector_ready = bool(settings.milvus_uri)
+    elif vector_provider == "qdrant":
+        vector_ready = bool(settings.qdrant_url)
+    else:
+        vector_ready = False
+    return bool(vector_ready and settings.embedding_base_url and settings.embedding_model)
