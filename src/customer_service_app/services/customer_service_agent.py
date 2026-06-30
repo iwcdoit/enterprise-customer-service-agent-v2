@@ -25,6 +25,7 @@ from customer_service_app.prompts.customer_service import (
 from customer_service_app.services.business_gateway import BusinessGateway
 from customer_service_app.services.conversation_service import ConversationService
 from customer_service_app.services.conversation_memory import ConversationMemoryCompactor
+from customer_service_app.services.cost_governance_service import CostGovernanceService
 from customer_service_app.services.question_preprocessor import QuestionPreprocessor
 from customer_service_app.services.rag_service import RagService
 from customer_service_app.services.tool_registry import ToolExecutionContext, ToolRegistry
@@ -47,6 +48,7 @@ class CustomerServiceAgent:
         search_client: SerpApiSearchClient,
         business_gateway: BusinessGateway,
         semantic_cache: RedisSemanticCache | None,
+        cost_service: CostGovernanceService,
     ):
         """Inject the dependencies needed to handle a customer-service turn."""
 
@@ -58,6 +60,7 @@ class CustomerServiceAgent:
         self._search_client = search_client
         self._business_gateway = business_gateway
         self._semantic_cache = semantic_cache
+        self._cost_service = cost_service
         self._conversation_service = ConversationService(session)
         self._memory_compactor = ConversationMemoryCompactor()
         self._question_preprocessor = QuestionPreprocessor()
@@ -89,6 +92,15 @@ class CustomerServiceAgent:
             first_question=request.question,
         )
         trace.append(ChatTraceStep(stage="conversation", detail="会话已加载或创建"))
+
+        cost_strategy = await self._cost_service.choose_strategy(tenant_id=request.tenant_id)
+        trace.append(
+            ChatTraceStep(
+                stage="cost",
+                detail="已选择本轮模型和上下文策略",
+                metadata=cost_strategy.model_dump(),
+            )
+        )
 
         skip_cache = bool(request.metadata.get("skip_cache"))
         if self._semantic_cache is not None and skip_cache:
@@ -126,6 +138,7 @@ class CustomerServiceAgent:
         knowledge = await self._rag_service.retrieve(
             tenant_id=request.tenant_id,
             question=request.question,
+            top_k=cost_strategy.rag_top_k,
         )
         trace.append(
             ChatTraceStep(
@@ -135,7 +148,13 @@ class CustomerServiceAgent:
             )
         )
 
-        messages = await self._build_llm_messages(request, conversation.id, knowledge, trace)
+        messages = await self._build_llm_messages(
+            request,
+            conversation.id,
+            knowledge,
+            trace,
+            history_turns=cost_strategy.history_turns,
+        )
 
         # Tool definitions are passed as a structured API parameter.
         # They are not embedded in the user question.
@@ -143,6 +162,7 @@ class CustomerServiceAgent:
             messages,
             tools=self._tool_registry.definitions(),
             tool_choice="auto",
+            model=cost_strategy.model,
         )
         trace.append(
             ChatTraceStep(
@@ -167,7 +187,7 @@ class CustomerServiceAgent:
                     metadata={"tool_count": len(tool_results)},
                 )
             )
-            final_response = await self._llm_client.chat(messages)
+            final_response = await self._llm_client.chat(messages, model=cost_strategy.model)
             answer = final_response.content
         else:
             answer = first_response.content
@@ -230,12 +250,18 @@ class CustomerServiceAgent:
         conversation_id: str,
         knowledge: list[KnowledgeChunk],
         trace: list[ChatTraceStep],
+        history_turns: int,
     ) -> list[dict[str, Any]]:
         """Build model messages from policy prompt, history, knowledge, and the current question."""
 
         history = request.history
         if not history:
-            history = await self._conversation_service.recent_history(conversation_id)
+            history = await self._conversation_service.recent_history(
+                conversation_id,
+                limit=history_turns,
+            )
+        elif len(history) > history_turns:
+            history = history[-history_turns:]
         memory_window = self._memory_compactor.compact(history)
         trace.append(
             ChatTraceStep(

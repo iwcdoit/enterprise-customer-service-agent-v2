@@ -30,7 +30,13 @@ class RagService:
         self._embedding_client = embedding_client
         self._vector_store = vector_store
 
-    async def retrieve(self, *, tenant_id: str, question: str) -> list[KnowledgeChunk]:
+    async def retrieve(
+        self,
+        *,
+        tenant_id: str,
+        question: str,
+        top_k: int | None = None,
+    ) -> list[KnowledgeChunk]:
         """根据用户问题检索知识库。
 
         流程是：问题文本 -> embedding 向量 -> 向量库相似度检索 -> KnowledgeChunk。
@@ -44,6 +50,6 @@ class RagService:
         return await self._vector_store.search(
             tenant_id=tenant_id,
             query_vector=query_vector,
-            top_k=self._settings.rag_top_k,
+            top_k=top_k or self._settings.rag_top_k,
             score_threshold=self._settings.rag_score_threshold,
         )

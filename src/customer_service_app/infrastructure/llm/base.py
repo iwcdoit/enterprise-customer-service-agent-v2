@@ -33,6 +33,7 @@ class LLMResponse:
     content: str
     tool_calls: list[LLMToolCall]
     finish_reason: str | None = None
+    model: str | None = None
 
 
 class LLMClient(Protocol):
@@ -50,6 +51,7 @@ class LLMClient(Protocol):
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | dict[str, Any] | None = None,
         temperature: float | None = None,
+        model: str | None = None,
     ) -> LLMResponse:
         """普通聊天调用，可把工具列表绑定给模型。"""
         ...

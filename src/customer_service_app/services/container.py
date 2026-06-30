@@ -10,6 +10,7 @@ from customer_service_app.infrastructure.mcp.client import build_after_sales_mcp
 from customer_service_app.infrastructure.search.serpapi_client import SerpApiSearchClient
 from customer_service_app.infrastructure.vector_store.factory import build_vector_store
 from customer_service_app.services.business_gateway import BusinessGateway
+from customer_service_app.services.cost_governance_service import CostGovernanceService
 from customer_service_app.services.customer_service_agent import CustomerServiceAgent
 from customer_service_app.services.rag_service import RagService
 from customer_service_app.tools.default_registry import build_default_tool_registry
@@ -51,4 +52,5 @@ def build_customer_service_agent(session: AsyncSession) -> CustomerServiceAgent:
         search_client=SerpApiSearchClient(settings),
         business_gateway=business_gateway,
         semantic_cache=semantic_cache,
+        cost_service=CostGovernanceService(settings=settings),
     )

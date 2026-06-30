@@ -46,6 +46,7 @@ class OpenAICompatibleLLMClient(LLMClient):
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | dict[str, Any] | None = None,
         temperature: float | None = None,
+        model: str | None = None,
     ) -> LLMResponse:
         """调用非流式聊天接口。
 
@@ -55,7 +56,7 @@ class OpenAICompatibleLLMClient(LLMClient):
         - 模型如果判断需要工具，会在响应里返回 `tool_calls`。
         """
         kwargs: dict[str, Any] = {
-            "model": self._settings.llm_model,
+            "model": model or self._settings.llm_model,
             "messages": messages,
             "temperature": temperature if temperature is not None else self._settings.llm_temperature,
         }
@@ -90,6 +91,7 @@ class OpenAICompatibleLLMClient(LLMClient):
             content=message.content or "",
             tool_calls=tool_calls,
             finish_reason=choice.finish_reason,
+            model=getattr(response, "model", None) or str(kwargs["model"]),
         )
 
     async def stream_chat(
