@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +9,7 @@ from customer_service_app.infrastructure.db.models import (
     Conversation,
     Message,
     Order,
+    PendingAction,
     SupportTicket,
     TenantUsageDaily,
 )
@@ -179,3 +180,80 @@ class UsageRepository:
         usage.total_tokens += total_tokens
         await self._session.flush()
         return usage
+
+
+class PendingActionRepository:
+    """Data access object for high-risk tool confirmations."""
+
+    def __init__(self, session: AsyncSession):
+        self._session = session
+
+    async def create(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        conversation_id: str | None,
+        tool_name: str,
+        arguments: dict,
+    ) -> PendingAction:
+        action = PendingAction(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            tool_name=tool_name,
+            arguments_json=arguments,
+            status="pending",
+        )
+        self._session.add(action)
+        await self._session.flush()
+        return action
+
+    async def get_owned(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        action_id: str,
+    ) -> PendingAction | None:
+        result = await self._session.execute(
+            select(PendingAction).where(
+                PendingAction.id == action_id,
+                PendingAction.tenant_id == tenant_id,
+                PendingAction.user_id == user_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_pending(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        limit: int = 50,
+    ) -> list[PendingAction]:
+        result = await self._session.execute(
+            select(PendingAction)
+            .where(
+                PendingAction.tenant_id == tenant_id,
+                PendingAction.user_id == user_id,
+                PendingAction.status == "pending",
+            )
+            .order_by(PendingAction.created_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def mark_approved(self, action: PendingAction, *, comment: str | None) -> PendingAction:
+        action.status = "approved"
+        action.comment = comment
+        action.decided_at = datetime.now(timezone.utc)
+        await self._session.flush()
+        return action
+
+    async def mark_rejected(self, action: PendingAction, *, comment: str | None) -> PendingAction:
+        action.status = "rejected"
+        action.comment = comment
+        action.decided_at = datetime.now(timezone.utc)
+        await self._session.flush()
+        return action

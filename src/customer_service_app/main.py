@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from customer_service_app.api.routes_chat import router as chat_router
+from customer_service_app.api.routes_confirmations import router as confirmations_router
 from customer_service_app.api.routes_conversations import router as conversations_router
 from customer_service_app.api.routes_health import router as health_router
 from customer_service_app.api.routes_ops import router as ops_router
@@ -32,6 +33,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(ops_router)
     app.include_router(chat_router, prefix=settings.api_prefix)
+    app.include_router(confirmations_router, prefix=settings.api_prefix)
     app.include_router(conversations_router, prefix=settings.api_prefix)
 
     @app.exception_handler(AppError)

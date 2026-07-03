@@ -130,6 +130,27 @@ class ConversationView(BaseModel):
     status: str
 
 
+class ConfirmationDecisionRequest(BaseModel):
+    """确认或拒绝高风险工具动作的请求体。"""
+
+    tenant_id: str
+    user_id: str
+    comment: str | None = None
+
+
+class PendingActionView(BaseModel):
+    """等待用户或人工客服确认的工具动作。"""
+
+    id: str
+    tenant_id: str
+    user_id: str
+    conversation_id: str | None
+    tool_name: str
+    arguments: dict[str, Any]
+    status: str
+    comment: str | None = None
+
+
 class HealthResponse(BaseModel):
     """健康检查接口返回值。
 
