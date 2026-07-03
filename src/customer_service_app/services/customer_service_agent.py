@@ -23,6 +23,7 @@ from customer_service_app.prompts.customer_service import (
     format_knowledge_context,
 )
 from customer_service_app.services.business_gateway import BusinessGateway
+from customer_service_app.services.confirmation_service import ConfirmationService
 from customer_service_app.services.conversation_service import ConversationService
 from customer_service_app.services.conversation_memory import ConversationMemoryCompactor
 from customer_service_app.services.cost_governance_service import CostGovernanceService
@@ -62,6 +63,7 @@ class CustomerServiceAgent:
         self._semantic_cache = semantic_cache
         self._cost_service = cost_service
         self._conversation_service = ConversationService(session)
+        self._confirmation_service = ConfirmationService(session)
         self._memory_compactor = ConversationMemoryCompactor()
         self._question_preprocessor = QuestionPreprocessor()
 
@@ -184,11 +186,14 @@ class CustomerServiceAgent:
         )
 
         if tool_results:
+            pending_count = sum(
+                1 for item in tool_results if item.payload.get("requires_confirmation") is True
+            )
             trace.append(
                 ChatTraceStep(
                     stage="tools",
                     detail="已执行模型请求的工具",
-                    metadata={"tool_count": len(tool_results)},
+                    metadata={"tool_count": len(tool_results), "pending_actions": pending_count},
                 )
             )
             final_response = await self._llm_client.chat(messages, model=cost_strategy.model)
@@ -340,6 +345,19 @@ class CustomerServiceAgent:
                     arguments_json=call.arguments,
                     context=context,
                 )
+                if payload.get("requires_confirmation") is True:
+                    pending_action = await self._confirmation_service.create_pending_action(
+                        tenant_id=request.tenant_id,
+                        user_id=request.user_id,
+                        conversation_id=conversation_id,
+                        tool_name=call.name,
+                        arguments=arguments,
+                    )
+                    payload = {
+                        **payload,
+                        "action_id": pending_action.id,
+                        "status": pending_action.status,
+                    }
                 ok = True
             except Exception as exc:
                 payload = {"error": str(exc)}
