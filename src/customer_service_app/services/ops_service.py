@@ -45,18 +45,16 @@ class OpsService:
     ) -> TenantStrategyView:
         """Preview the model/RAG/history strategy selected for one tenant."""
 
-        strategy = await CostGovernanceService(
+        cost_service = CostGovernanceService(
             settings=self._settings,
             session=self._session,
-        ).choose_strategy(tenant_id=tenant_id, used_tokens=used_tokens)
-        notes: list[str] = []
-        if strategy.degraded:
-            notes.append(f"当前租户已触发降级策略：{strategy.degradation_reason}")
-        if strategy.cache_first:
-            notes.append("当前策略会优先尝试语义缓存以降低调用成本")
-        if strategy.use_rerank:
-            notes.append("当前策略允许使用 rerank 提升召回质量")
-        return TenantStrategyView(tenant_id=tenant_id, strategy=strategy, notes=notes)
+        )
+        strategy = await cost_service.choose_strategy(tenant_id=tenant_id, used_tokens=used_tokens)
+        return TenantStrategyView(
+            tenant_id=tenant_id,
+            strategy=strategy,
+            notes=cost_service.explain_strategy(strategy),
+        )
 
     async def pending_action_summary(
         self,

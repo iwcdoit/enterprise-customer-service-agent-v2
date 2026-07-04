@@ -21,7 +21,11 @@ class CostStrategy(BaseModel):
     degraded: bool = False
     budget_tokens: int = 0
     used_tokens: int = 0
+    remaining_tokens: int = 0
     usage_ratio: float = 0.0
+    usage_percent: float = 0.0
+    budget_warning: bool = False
+    budget_exceeded: bool = False
     degradation_reason: str | None = None
 
 

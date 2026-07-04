@@ -45,6 +45,8 @@ async def test_tenant_strategy_preview_supports_degrade_simulation() -> None:
     assert view.strategy.degraded is True
     assert view.strategy.model == "cheap-model"
     assert view.strategy.degradation_reason == "daily_budget_exceeded"
+    assert view.strategy.remaining_tokens == 0
+    assert view.strategy.budget_exceeded is True
     assert view.notes
 
 
