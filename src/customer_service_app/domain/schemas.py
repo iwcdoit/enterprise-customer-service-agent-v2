@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+from customer_service_app.domain.cost import CostStrategy
 
 
 MessageRole = Literal["system", "user", "assistant", "tool"]
@@ -130,6 +133,24 @@ class ConversationView(BaseModel):
     status: str
 
 
+class ConversationMessageView(BaseModel):
+    """会话详情页展示的一条历史消息。"""
+
+    id: str
+    conversation_id: str
+    role: str
+    content: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime | None = None
+
+
+class ConversationDetailView(BaseModel):
+    """一个会话及其最近消息。"""
+
+    conversation: ConversationView
+    messages: list[ConversationMessageView] = Field(default_factory=list)
+
+
 class ConfirmationDecisionRequest(BaseModel):
     """确认或拒绝高风险工具动作的请求体。"""
 
@@ -149,6 +170,49 @@ class PendingActionView(BaseModel):
     arguments: dict[str, Any]
     status: str
     comment: str | None = None
+    created_at: datetime | None = None
+    expires_at: datetime | None = None
+    expired: bool = False
+
+
+class RuntimeConfigView(BaseModel):
+    """运营诊断页展示的安全运行配置摘要。
+
+    这里不能返回 API key、数据库密码、Redis 密码等敏感信息，只展示功能开关、
+    provider 和必要的配置完整性提示。
+    """
+
+    app_name: str
+    runtime_env: str
+    api_prefix: str
+    llm_provider: str
+    embedding_provider: str
+    vector_store_provider: str
+    rag_enabled: bool
+    semantic_cache_enabled: bool
+    mcp_after_sales_enabled: bool
+    cost_governance_enabled: bool
+    search_enabled: bool
+    warnings: list[str] = Field(default_factory=list)
+
+
+class TenantStrategyView(BaseModel):
+    """运营侧查看某个租户当前会采用的成本策略。"""
+
+    tenant_id: str
+    strategy: CostStrategy
+    notes: list[str] = Field(default_factory=list)
+
+
+class PendingActionSummaryView(BaseModel):
+    """运营侧查看某个用户的待确认动作概览。"""
+
+    tenant_id: str
+    user_id: str
+    total_pending: int
+    active_pending: int
+    expired_pending: int
+    actions: list[PendingActionView] = Field(default_factory=list)
 
 
 class HealthResponse(BaseModel):

@@ -59,19 +59,29 @@ class StreamableHttpMCPBusinessClient(MCPBusinessClient):
                 yield session
 
     async def list_tools(self) -> list[MCPToolContract]:
-        async with self._session() as session:
-            response = await session.list_tools()
-            contracts = await _read_contracts(session)
-            return _to_contracts(response.tools, contracts)
+        try:
+            async with self._session() as session:
+                response = await session.list_tools()
+                contracts = await _read_contracts(session)
+                return _to_contracts(response.tools, contracts)
+        except ExternalServiceError:
+            raise
+        except Exception as exc:
+            raise ExternalServiceError("Failed to list MCP tools") from exc
 
     async def call_tool(self, *, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        async with self._session() as session:
-            result = await session.call_tool(
-                name,
-                arguments,
-                read_timeout_seconds=timedelta(seconds=self._timeout_seconds),
-            )
-            return _normalize_tool_result(result)
+        try:
+            async with self._session() as session:
+                result = await session.call_tool(
+                    name,
+                    arguments,
+                    read_timeout_seconds=timedelta(seconds=self._timeout_seconds),
+                )
+                return _normalize_tool_result(result)
+        except ExternalServiceError:
+            raise
+        except Exception as exc:
+            raise ExternalServiceError(f"Failed to call MCP tool: {name}") from exc
 
     async def close(self) -> None:
         await self._http_client.aclose()
@@ -104,15 +114,25 @@ class StdioMCPBusinessClient(MCPBusinessClient):
                 yield session
 
     async def list_tools(self) -> list[MCPToolContract]:
-        async with self._session() as session:
-            response = await session.list_tools()
-            contracts = await _read_contracts(session)
-            return _to_contracts(response.tools, contracts)
+        try:
+            async with self._session() as session:
+                response = await session.list_tools()
+                contracts = await _read_contracts(session)
+                return _to_contracts(response.tools, contracts)
+        except ExternalServiceError:
+            raise
+        except Exception as exc:
+            raise ExternalServiceError("Failed to list MCP tools") from exc
 
     async def call_tool(self, *, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        async with self._session() as session:
-            result = await session.call_tool(name, arguments)
-            return _normalize_tool_result(result)
+        try:
+            async with self._session() as session:
+                result = await session.call_tool(name, arguments)
+                return _normalize_tool_result(result)
+        except ExternalServiceError:
+            raise
+        except Exception as exc:
+            raise ExternalServiceError(f"Failed to call MCP tool: {name}") from exc
 
 
 async def _read_contracts(session: Any) -> dict[str, dict[str, Any]]:
@@ -180,4 +200,3 @@ def _normalize_tool_result(result: Any) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {"text": raw}
     return parsed if isinstance(parsed, dict) else {"result": parsed}
-

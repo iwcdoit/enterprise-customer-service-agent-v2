@@ -64,7 +64,12 @@ class RedisSemanticCache:
             raw_vector = await self.redis.get(key)
             if not raw_vector:
                 continue
-            cached_vector = json.loads(raw_vector)
+            try:
+                cached_vector = json.loads(raw_vector)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if not isinstance(cached_vector, list):
+                continue
             similarity = self._cosine(query_vector, cached_vector)
             if similarity < self._settings.semantic_cache_threshold:
                 continue
@@ -74,10 +79,14 @@ class RedisSemanticCache:
             metadata_raw = await self.redis.get(f"{prefix}:meta:{cache_id}")
             if not answer:
                 continue
+            try:
+                metadata = json.loads(metadata_raw or "{}")
+            except (TypeError, json.JSONDecodeError):
+                metadata = {}
             entry = SemanticCacheEntry(
                 answer=answer,
                 similarity=similarity,
-                metadata=json.loads(metadata_raw or "{}"),
+                metadata=metadata if isinstance(metadata, dict) else {},
             )
             if best is None or entry.similarity > best.similarity:
                 best = entry
@@ -116,6 +125,8 @@ class RedisSemanticCache:
 
         结果越接近 1，表示语义越接近；越接近 0，表示关系越弱。
         """
+        if not left or not right or len(left) != len(right):
+            return 0.0
         a = np.array(left, dtype=np.float32)
         b = np.array(right, dtype=np.float32)
         denominator = float(np.linalg.norm(a) * np.linalg.norm(b))

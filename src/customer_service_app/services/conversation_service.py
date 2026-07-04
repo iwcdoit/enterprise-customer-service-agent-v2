@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from customer_service_app.core.exceptions import NotFoundError
 from customer_service_app.domain.schemas import ChatMessage
-from customer_service_app.infrastructure.db.models import Conversation
+from customer_service_app.infrastructure.db.models import Conversation, Message
 from customer_service_app.infrastructure.db.repositories import ConversationRepository
 
 
@@ -95,6 +95,33 @@ class ConversationService:
         """列出某个用户自己的会话。"""
 
         return await self._repo.list_by_user(tenant_id=tenant_id, user_id=user_id)
+
+    async def get_conversation_detail(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        conversation_id: str,
+        message_limit: int = 50,
+    ) -> tuple[Conversation, list[Message]]:
+        """读取一个会话和最近消息，并校验会话归属。
+
+        这个方法服务于运营台或前端会话详情页。注意不能只按 conversation_id
+        查消息，否则用户可能构造别人的 conversation_id 越权读取历史。
+        """
+
+        conversation = await self._repo.get_owned(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+        )
+        if conversation is None:
+            raise NotFoundError("Conversation not found or not owned by user")
+        messages = await self._repo.recent_messages(
+            conversation_id=conversation.id,
+            limit=message_limit,
+        )
+        return conversation, messages
 
     @staticmethod
     def _build_title(question: str, max_length: int = 24) -> str:

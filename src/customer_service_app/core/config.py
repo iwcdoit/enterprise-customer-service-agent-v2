@@ -88,6 +88,7 @@ class Settings(BaseSettings):
     mcp_approval_signing_secret: str = ""
     mcp_approval_issuer: str = "customer-service-agent"
     mcp_approval_token_ttl_seconds: int = 600
+    pending_action_ttl_seconds: int = 1800
 
     jwt_secret_key: str = ""
     jwt_algorithm: str = "HS256"
