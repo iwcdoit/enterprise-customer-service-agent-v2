@@ -91,6 +91,19 @@ class ToolRegistry:
 
         return [tool.as_openai_tool() for tool in self._tools.values()]
 
+    def names(self) -> list[str]:
+        """Return registered tool names."""
+
+        return list(self._tools.keys())
+
+    def require(self, name: str) -> ToolSpec:
+        """Return a registered tool or raise a business error."""
+
+        tool = self._tools.get(name)
+        if tool is None:
+            raise AppError(f"Unknown tool: {name}", code="unknown_tool", status_code=400)
+        return tool
+
     async def execute(
         self,
         *,
