@@ -16,12 +16,14 @@ router = APIRouter(prefix="/confirmations", tags=["confirmations"])
 async def list_pending_actions(
     tenant_id: str,
     user_id: str,
+    include_expired: bool = False,
     session: AsyncSession = Depends(get_db_session),
 ) -> list[PendingActionView]:
     """List pending tool actions for the current user."""
     return await ConfirmationService(session).list_pending_actions(
         tenant_id=tenant_id,
         user_id=user_id,
+        include_expired=include_expired,
     )
 
 

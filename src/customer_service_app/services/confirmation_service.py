@@ -9,6 +9,7 @@ from customer_service_app.core.exceptions import AppError
 from customer_service_app.domain.schemas import PendingActionView
 from customer_service_app.infrastructure.db.models import PendingAction
 from customer_service_app.infrastructure.db.repositories import PendingActionRepository
+from customer_service_app.infrastructure.mcp.approval import build_confirmation_id
 
 
 class ConfirmationService:
@@ -24,13 +25,23 @@ class ConfirmationService:
         tenant_id: str,
         user_id: str,
         conversation_id: str | None,
+        thread_id: str | None = None,
+        confirmation_id: str | None = None,
         tool_name: str,
         arguments: dict,
     ) -> PendingActionView:
+        resolved_confirmation_id = confirmation_id or build_confirmation_id(
+            tool_name=tool_name,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            arguments=arguments,
+        )
         action = await self._repo.create(
             tenant_id=tenant_id,
             user_id=user_id,
             conversation_id=conversation_id,
+            thread_id=thread_id,
+            confirmation_id=resolved_confirmation_id,
             tool_name=tool_name,
             arguments=arguments,
         )
@@ -130,6 +141,8 @@ class ConfirmationService:
             tenant_id=action.tenant_id,
             user_id=action.user_id,
             conversation_id=action.conversation_id,
+            thread_id=action.thread_id,
+            confirmation_id=action.confirmation_id,
             tool_name=action.tool_name,
             arguments=dict(action.arguments_json or {}),
             status=action.status,

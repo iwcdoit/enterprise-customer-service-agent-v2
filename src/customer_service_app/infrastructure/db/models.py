@@ -108,6 +108,8 @@ class PendingAction(Base):
     tenant_id: Mapped[str] = mapped_column(String(64), index=True)
     user_id: Mapped[str] = mapped_column(String(64), index=True)
     conversation_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    thread_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    confirmation_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     tool_name: Mapped[str] = mapped_column(String(128), index=True)
     arguments_json: Mapped[dict] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(32), default="pending", index=True)

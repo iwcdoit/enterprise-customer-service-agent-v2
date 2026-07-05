@@ -194,13 +194,30 @@ class PendingActionRepository:
         tenant_id: str,
         user_id: str,
         conversation_id: str | None,
+        thread_id: str | None,
+        confirmation_id: str | None,
         tool_name: str,
         arguments: dict,
     ) -> PendingAction:
+        if confirmation_id:
+            result = await self._session.execute(
+                select(PendingAction).where(
+                    PendingAction.tenant_id == tenant_id,
+                    PendingAction.user_id == user_id,
+                    PendingAction.confirmation_id == confirmation_id,
+                    PendingAction.status == "pending",
+                )
+            )
+            existing = result.scalar_one_or_none()
+            if existing is not None:
+                return existing
+
         action = PendingAction(
             tenant_id=tenant_id,
             user_id=user_id,
             conversation_id=conversation_id,
+            thread_id=thread_id,
+            confirmation_id=confirmation_id,
             tool_name=tool_name,
             arguments_json=arguments,
             status="pending",

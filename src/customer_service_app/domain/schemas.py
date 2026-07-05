@@ -166,6 +166,8 @@ class PendingActionView(BaseModel):
     tenant_id: str
     user_id: str
     conversation_id: str | None
+    thread_id: str | None = None
+    confirmation_id: str | None = None
     tool_name: str
     arguments: dict[str, Any]
     status: str
