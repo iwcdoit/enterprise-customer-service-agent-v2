@@ -9,6 +9,7 @@ numpy>=1.26.0
 qdrant-client>=1.9.0
 pymilvus>=2.4.0
 SQLAlchemy>=2.0.30
+alembic>=1.13.2
 aiomysql>=0.2.0
 greenlet>=3.0.3
 cryptography>=42.0.0
