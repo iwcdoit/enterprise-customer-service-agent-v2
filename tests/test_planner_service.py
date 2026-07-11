@@ -34,6 +34,21 @@ def test_multi_intent_question_needs_plan() -> None:
     assert planner.needs_plan(request) is True
 
 
+def test_rule_plan_extracts_order_id_and_required_arguments() -> None:
+    planner = PlannerService(tool_registry=build_default_tool_registry())
+    request = ChatRequest(
+        tenant_id="t1",
+        user_id="u1",
+        question="查询订单 202607110001，如果已经签收就申请退款。",
+    )
+
+    plan = planner.build_rule_based_plan(request)
+
+    assert plan.steps[0].arguments == {"order_id": "202607110001"}
+    assert plan.steps[1].arguments["order_id"] == "202607110001"
+    assert plan.steps[1].arguments["reason"] == request.question
+
+
 async def test_build_plan_normalizes_llm_json() -> None:
     planner = PlannerService(tool_registry=build_default_tool_registry(), max_steps=3)
     llm = FakeLLMClient(
@@ -71,4 +86,6 @@ async def test_build_plan_falls_back_to_rules_on_invalid_json() -> None:
     assert response is not None
     assert plan is not None
     assert plan.source == "rule"
-    assert len(plan.steps) >= 2
+    assert len(plan.steps) == 1
+    assert plan.steps[0].action_type == "final"
+    assert "订单号" in plan.steps[0].title

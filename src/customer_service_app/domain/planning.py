@@ -13,7 +13,7 @@ PlanSource = Literal["llm", "rule"]
 
 
 class PlanStep(BaseModel):
-    """One bounded step in a multi-intent customer-service plan."""
+    """多意图客服计划中的一个有界执行步骤。"""
 
     id: str
     title: str
@@ -28,7 +28,7 @@ class PlanStep(BaseModel):
 
 
 class AgentPlan(BaseModel):
-    """A bounded execution plan generated before running tools or graph nodes."""
+    """执行工具或 Graph 节点前生成的有界计划。"""
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_goal: str
@@ -39,7 +39,7 @@ class AgentPlan(BaseModel):
 
 
 class PlanExecutionResult(BaseModel):
-    """Summary of a plan execution attempt."""
+    """一次计划执行的结构化结果。"""
 
     plan: AgentPlan
     completed_step_ids: list[str] = Field(default_factory=list)

@@ -90,6 +90,10 @@ class Settings(BaseSettings):
     mcp_approval_token_ttl_seconds: int = 600
     pending_action_ttl_seconds: int = 1800
 
+    planning_enabled: bool = True
+    plan_max_steps: int = 6
+    react_step_timeout_seconds: float = 20.0
+
     jwt_secret_key: str = ""
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60

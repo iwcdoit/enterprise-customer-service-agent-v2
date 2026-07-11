@@ -6,6 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from customer_service_app.domain.cost import CostStrategy
+from customer_service_app.domain.planning import AgentPlan, PlanExecutionResult
 
 
 MessageRole = Literal["system", "user", "assistant", "tool"]
@@ -112,6 +113,8 @@ class ChatResponse(BaseModel):
     knowledge: list[KnowledgeChunk] = Field(default_factory=list)
     tool_calls: list[ToolCallView] = Field(default_factory=list)
     tool_results: list[ToolResultView] = Field(default_factory=list)
+    plan: AgentPlan | None = None
+    plan_execution: PlanExecutionResult | None = None
     trace: list[ChatTraceStep] = Field(default_factory=list)
 
 

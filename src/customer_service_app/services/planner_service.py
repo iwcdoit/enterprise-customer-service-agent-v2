@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from customer_service_app.domain.planning import AgentPlan, PlanActionType, PlanStep
@@ -10,7 +11,7 @@ from customer_service_app.services.tool_registry import ToolRegistry, ToolSpec
 
 
 class PlannerService:
-    """Build a bounded plan for complex multi-intent requests."""
+    """为复杂多意图请求生成步骤数受限的执行计划。"""
 
     _condition_words = ("如果", "不行", "不能", "然后", "同时", "再", "并且", "否则")
     _order_words = ("订单", "物流", "快递", "签收", "发货")
@@ -23,7 +24,7 @@ class PlannerService:
         self._max_steps = max_steps
 
     def needs_plan(self, request: ChatRequest) -> bool:
-        """Use a zero-token gate so simple questions never pay planner cost."""
+        """使用零 Token 规则门控，简单问题不产生 Planner 模型成本。"""
 
         question = request.question
         if any(word in question for word in self._condition_words):
@@ -47,7 +48,7 @@ class PlannerService:
         llm_client: LLMClient,
         model: str,
     ) -> tuple[AgentPlan | None, LLMResponse | None]:
-        """Generate and validate a plan, falling back to deterministic rules."""
+        """生成并校验计划，模型输出异常时使用确定性规则兜底。"""
 
         if not self.needs_plan(request):
             return None, None
@@ -99,27 +100,30 @@ class PlannerService:
         return plan, response
 
     def build_rule_based_plan(self, request: ChatRequest) -> AgentPlan:
-        """Build a conservative plan without spending LLM tokens."""
+        """不消耗 LLM Token，使用规则生成保守计划。"""
 
         question = request.question
+        order_id = self._extract_order_id(question)
         steps: list[PlanStep] = []
 
-        if any(word in question for word in self._order_words):
+        if any(word in question for word in self._order_words) and order_id:
             steps.append(
                 self._tool_step(
                     step_id="step_1",
                     title="查询订单或物流状态",
                     tool_name="query_order_status",
+                    arguments={"order_id": order_id},
                 )
             )
 
-        if any(word in question for word in self._refund_words):
+        if any(word in question for word in self._refund_words) and order_id:
             steps.append(
                 self._tool_step(
                     step_id=f"step_{len(steps) + 1}",
                     title="根据售后诉求创建退款或退货申请",
                     tool_name="create_refund_ticket",
                     depends_on=[steps[-1].id] if steps else [],
+                    arguments={"order_id": order_id, "reason": question},
                 )
             )
 
@@ -130,6 +134,7 @@ class PlannerService:
                     title="创建转人工处理请求",
                     tool_name="transfer_to_human",
                     depends_on=[steps[-1].id] if steps else [],
+                    arguments={"reason": question, "priority": "high"},
                 )
             )
 
@@ -137,7 +142,11 @@ class PlannerService:
             steps.append(
                 PlanStep(
                     id="step_1",
-                    title="直接组织最终回复",
+                    title=(
+                        "向用户补充询问订单号"
+                        if any(word in question for word in (*self._order_words, *self._refund_words))
+                        else "直接组织最终回复"
+                    ),
                     action_type="final",
                 )
             )
@@ -207,6 +216,7 @@ class PlannerService:
         title: str,
         tool_name: str,
         depends_on: list[str] | None = None,
+        arguments: dict[str, Any] | None = None,
     ) -> PlanStep:
         tool = self._tool_registry.require(tool_name)
         return PlanStep(
@@ -214,6 +224,7 @@ class PlannerService:
             title=title,
             action_type="tool",
             tool_name=tool.name,
+            arguments=arguments or {},
             depends_on=depends_on or [],
             requires_confirmation=tool.requires_confirmation,
         )
@@ -223,8 +234,20 @@ class PlannerService:
         return {
             "name": tool.name,
             "description": tool.description,
+            "parameters": tool.parameters,
             "requires_confirmation": tool.requires_confirmation,
         }
+
+    @staticmethod
+    def _extract_order_id(question: str) -> str | None:
+        """从问题中提取明确订单号，供不调用模型的规则兜底计划使用。"""
+
+        match = re.search(
+            r"(?:订单号?|单号)\s*[:：]?\s*([A-Za-z0-9][A-Za-z0-9_-]{5,63})",
+            question,
+            flags=re.IGNORECASE,
+        )
+        return match.group(1) if match else None
 
     @staticmethod
     def _normalize_action_type(value: Any, tool_name: str | None) -> PlanActionType:

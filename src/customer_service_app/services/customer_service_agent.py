@@ -6,6 +6,7 @@ from typing import Any, AsyncIterator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from customer_service_app.core.config import Settings
+from customer_service_app.domain.planning import AgentPlan, PlanExecutionResult
 from customer_service_app.domain.schemas import (
     ChatMessage,
     ChatRequest,
@@ -27,15 +28,19 @@ from customer_service_app.services.confirmation_service import ConfirmationServi
 from customer_service_app.services.conversation_service import ConversationService
 from customer_service_app.services.conversation_memory import ConversationMemoryCompactor
 from customer_service_app.services.cost_governance_service import CostGovernanceService
+from customer_service_app.services.planner_service import PlannerService
 from customer_service_app.services.question_preprocessor import QuestionPreprocessor
 from customer_service_app.services.rag_service import RagService
+from customer_service_app.services.react_executor import ReactExecutor
 from customer_service_app.services.tool_registry import ToolExecutionContext, ToolRegistry
+from customer_service_app.workflows.nodes import CustomerServiceGraphNodes
+from customer_service_app.workflows.runtime import CustomerServiceGraphRuntime
 
 
 class CustomerServiceAgent:
-    """Production orchestration for one customer service turn.
+    """一轮客服请求的业务编排入口。
 
-    The agent coordinates LLM, RAG, tools, semantic cache, database, and prompts.
+    Agent 负责协调 LLM、RAG、工具、语义缓存、数据库和提示词。
     """
 
     def __init__(
@@ -51,7 +56,7 @@ class CustomerServiceAgent:
         semantic_cache: RedisSemanticCache | None,
         cost_service: CostGovernanceService,
     ):
-        """Inject the dependencies needed to handle a customer-service turn."""
+        """注入处理一轮客服请求所需的依赖。"""
 
         self._settings = settings
         self._session = session
@@ -63,18 +68,63 @@ class CustomerServiceAgent:
         self._semantic_cache = semantic_cache
         self._cost_service = cost_service
         self._conversation_service = ConversationService(session)
-        self._confirmation_service = ConfirmationService(session)
+        self._confirmation_service = ConfirmationService(session, settings)
         self._memory_compactor = ConversationMemoryCompactor()
         self._question_preprocessor = QuestionPreprocessor()
 
+        tool_context = ToolExecutionContext(
+            tenant_id="",
+            user_id="",
+            conversation_id=None,
+            session=session,
+            search_client=search_client,
+            business_gateway=business_gateway,
+        )
+        planner_service = PlannerService(
+            tool_registry=tool_registry,
+            max_steps=settings.plan_max_steps,
+        )
+        react_executor = ReactExecutor(
+            rag_service=rag_service,
+            tool_registry=tool_registry,
+            max_steps=settings.plan_max_steps,
+            step_timeout_seconds=settings.react_step_timeout_seconds,
+        )
+        graph_nodes = CustomerServiceGraphNodes(
+            llm_client=llm_client,
+            planner_service=planner_service,
+            react_executor=react_executor,
+            cost_service=cost_service,
+            conversation_service=self._conversation_service,
+            confirmation_service=self._confirmation_service,
+            tool_context=tool_context,
+            answer_handler=self._answer_turn,
+            planning_enabled=settings.planning_enabled,
+        )
+        self._graph_runtime = CustomerServiceGraphRuntime(graph_nodes)
+
     async def answer(self, request: ChatRequest) -> ChatResponse:
+        """统一从 LangGraph 编排入口处理一轮客服请求。"""
+
+        try:
+            return await self._graph_runtime.invoke(request)
+        except Exception:
+            await self._session.rollback()
+            raise
+
+    async def _answer_turn(
+        self,
+        request: ChatRequest,
+        plan: AgentPlan | None,
+        plan_execution: PlanExecutionResult | None,
+    ) -> ChatResponse:
         """处理一轮完整的客服问答。
 
         这是项目最核心的主流程：会话 -> 缓存 -> RAG -> LLM 决策 -> 工具执行
         -> 二次 LLM -> 保存消息 -> 返回响应。
         """
 
-        # Trace records the main processing stages returned to the ops console.
+        # Trace 记录本轮请求的主要处理阶段，并返回给运营验证台展示。
         trace: list[ChatTraceStep] = []
         question_profile = self._question_preprocessor.analyze(request.question)
         if question_profile.normalized_question != request.question:
@@ -104,7 +154,8 @@ class CustomerServiceAgent:
             )
         )
 
-        skip_cache = bool(request.metadata.get("skip_cache"))
+        # 复杂计划可能已经执行了查询或业务工具，不能复用旧业务状态下的语义缓存答案。
+        skip_cache = bool(request.metadata.get("skip_cache")) or plan is not None
         if self._semantic_cache is not None and skip_cache:
             trace.append(ChatTraceStep(stage="cache", detail="本次请求已跳过语义缓存"))
 
@@ -133,6 +184,8 @@ class CustomerServiceAgent:
                     conversation_id=conversation.id,
                     answer=cached.answer,
                     cache_hit=True,
+                    plan=plan,
+                    plan_execution=plan_execution,
                     trace=trace,
                 )
             trace.append(ChatTraceStep(stage="cache", detail="语义缓存未命中"))
@@ -156,16 +209,25 @@ class CustomerServiceAgent:
             knowledge,
             trace,
             history_turns=cost_strategy.history_turns,
+            plan_execution=plan_execution,
         )
 
-        # Tool definitions are passed as a structured API parameter.
-        # They are not embedded in the user question.
-        first_response = await self._llm_client.chat(
-            messages,
-            tools=self._tool_registry.definitions(),
-            tool_choice="auto",
-            model=cost_strategy.model,
-        )
+        # 计划请求已经在 Graph 中执行过有界步骤。
+        # 最终模型只总结 observation，不能再次调用同一批工具造成重复业务操作。
+        if plan_execution is not None:
+            first_response = await self._llm_client.chat(
+                messages,
+                model=cost_strategy.model,
+            )
+        else:
+            # 工具定义通过 LLM API 的结构化 tools 参数传入，不拼进用户问题。
+            # 模型可以根据问题决定不调用工具，或返回一个或多个 tool_calls。
+            first_response = await self._llm_client.chat(
+                messages,
+                tools=self._tool_registry.definitions(),
+                tool_choice="auto",
+                model=cost_strategy.model,
+            )
         await self._cost_service.record_llm_usage(
             tenant_id=request.tenant_id,
             usage=first_response.usage,
@@ -178,14 +240,17 @@ class CustomerServiceAgent:
             )
         )
 
-        tool_calls, tool_results = await self._execute_tool_calls(
-            request=request,
-            conversation_id=conversation.id,
-            calls=first_response.tool_calls,
-            messages=messages,
-        )
+        if plan_execution is not None:
+            tool_calls, tool_results = self._planned_tool_views(plan_execution)
+        else:
+            tool_calls, tool_results = await self._execute_tool_calls(
+                request=request,
+                conversation_id=conversation.id,
+                calls=first_response.tool_calls,
+                messages=messages,
+            )
 
-        if tool_results:
+        if tool_results and plan_execution is None:
             pending_count = sum(
                 1 for item in tool_results if item.payload.get("requires_confirmation") is True
             )
@@ -237,6 +302,8 @@ class CustomerServiceAgent:
             knowledge=knowledge,
             tool_calls=tool_calls,
             tool_results=tool_results,
+            plan=plan,
+            plan_execution=plan_execution,
             trace=trace,
         )
 
@@ -264,8 +331,9 @@ class CustomerServiceAgent:
         knowledge: list[KnowledgeChunk],
         trace: list[ChatTraceStep],
         history_turns: int,
+        plan_execution: PlanExecutionResult | None = None,
     ) -> list[dict[str, Any]]:
-        """Build model messages from policy prompt, history, knowledge, and the current question."""
+        """用系统规则、历史消息、知识块和当前问题组装模型 messages。"""
 
         history = request.history
         if not history:
@@ -296,8 +364,51 @@ class CustomerServiceAgent:
 
         messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
         messages.extend(self._to_llm_messages(memory_window.messages))
+        if plan_execution is not None:
+            messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "以下是本轮有界执行计划的真实后端观察结果。请基于结果回答，"
+                        "不要声称执行了结果中未完成的动作：\n"
+                        + json.dumps(
+                            plan_execution.model_dump(mode="json"),
+                            ensure_ascii=False,
+                        )
+                    ),
+                }
+            )
         messages.append({"role": "user", "content": request.question})
         return messages
+
+    @staticmethod
+    def _planned_tool_views(
+        execution: PlanExecutionResult,
+    ) -> tuple[list[ToolCallView], list[ToolResultView]]:
+        """把计划中的工具 observation 转为普通工具调用共用的 API 返回结构。"""
+
+        calls: list[ToolCallView] = []
+        results: list[ToolResultView] = []
+        for step in execution.plan.steps:
+            if step.action_type != "tool" or not step.tool_name:
+                continue
+            call_id = f"plan:{step.id}"
+            calls.append(
+                ToolCallView(
+                    id=call_id,
+                    name=step.tool_name,
+                    arguments=step.arguments,
+                )
+            )
+            results.append(
+                ToolResultView(
+                    tool_call_id=call_id,
+                    name=step.tool_name,
+                    ok=step.status not in {"failed", "skipped"},
+                    payload=step.observation,
+                )
+            )
+        return calls, results
 
     async def _execute_tool_calls(
         self,
@@ -307,7 +418,7 @@ class CustomerServiceAgent:
         calls: list[LLMToolCall],
         messages: list[dict[str, Any]],
     ) -> tuple[list[ToolCallView], list[ToolResultView]]:
-        """Execute tool calls requested by the model and append tool results to messages."""
+        """执行模型请求的工具，并把工具结果追加到 messages。"""
 
         if not calls:
             return [], []
@@ -383,12 +494,12 @@ class CustomerServiceAgent:
 
     @staticmethod
     def _to_llm_messages(history: list[ChatMessage]) -> list[dict[str, str]]:
-        """Convert internal chat messages to OpenAI-compatible message dicts."""
+        """把内部消息对象转换为 OpenAI-compatible 消息字典。"""
 
         return [{"role": item.role, "content": item.content} for item in history]
 
     @staticmethod
     def _sse(event: str, data: dict[str, Any]) -> str:
-        """Serialize one Server-Sent Events message."""
+        """把一个事件序列化为 Server-Sent Events 文本。"""
 
         return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"

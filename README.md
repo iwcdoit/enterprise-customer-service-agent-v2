@@ -2,7 +2,7 @@
 
 一个面向企业售后客服场景的 AI Agent 后端项目，覆盖用户提问、意图理解、任务规划、知识库检索、短期/长期记忆、工具调用、人工确认、业务系统执行、链路追踪和结果落库的完整请求链路。
 
-相比 V1 版本，V2 计划引入 LangGraph、HIL（checkpoint / interrupt / resume）、MCP 业务服务边界、短期与长期记忆、模型成本治理，以及观测与评估能力。
+相比 V1 版本，V2 围绕 LangGraph 编排、HIL（checkpoint / interrupt / resume）、MCP 业务服务边界、短期与长期记忆、模型成本治理，以及观测与评估能力持续演进。
 
 ## 架构
 
