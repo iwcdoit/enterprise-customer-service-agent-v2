@@ -6,35 +6,42 @@
 
 ## 架构
 
-![Customer Service Agent V2 Architecture](assets/customer-service-runtime.svg)
+thinking...
 
-核心运行链路：
+目标运行链路：
 
-```text
-用户 / 运营台 / 业务前端
--> API Gateway / FastAPI
--> 请求校验、租户识别、限流、鉴权
--> LangGraph 客服状态图
-   -> 加载短期会话记忆
-   -> 读取长期用户记忆
-   -> 用户问题标准化和意图识别
-   -> Planner 拆分复杂任务
-   -> RAG 检索售后知识库
-   -> 根据成本策略选择模型
-   -> 大模型首轮决策
-      -> 直接回答
-      -> 生成工具调用
-      -> 触发人工确认中断
-   -> ToolRegistry 执行业务工具
-      -> MCP Client
-      -> 售后 MCP 服务
-      -> 订单 / 物流 / 工单 / 优惠券 / 搜索系统
-   -> 大模型二次总结工具结果
-   -> 写入消息、记忆、审计日志和指标
--> 返回答案、链路追踪、知识证据、工具结果、确认状态
+``` mermaid
+flowchart TD
+    START((START)) --> PREPARE["prepare\n会话 / Trace / 成本 / 记忆 / 改写 / 缓存"]
+
+    PREPARE -->|"缓存命中"| PERSIST["persist\n消息 / 摘要 / 长期记忆 / Trace"]
+    PREPARE -->|"缓存未命中或不可缓存"| RETRIEVE["retrieve\nEmbedding + 向量检索"]
+    RETRIEVE --> DECIDE["decide\nPlanner Gate 或首轮 LLM"]
+
+    DECIDE -->|"复杂多意图"| PLAN["execute_plan_step\n按 plan_cursor 执行"]
+    DECIDE -->|"模型返回 tool_calls"| TOOL["execute_tool_call\n按 tool_cursor 执行"]
+    DECIDE -->|"模型直接回答"| FINALIZE["finalize\n生成最终答复"]
+
+    PLAN -->|"还有普通步骤"| PLAN
+    PLAN -->|"高风险步骤"| PENDING["create_pending_action\n风险评估 + 确认单落库"]
+    PLAN -->|"计划结束"| FINALIZE
+
+    TOOL -->|"还有只读工具"| TOOL
+    TOOL -->|"高风险工具"| PENDING
+    TOOL -->|"工具结束"| FINALIZE
+
+    PENDING --> INTERRUPT["await_confirmation\ninterrupt() 暂停 Graph"]
+    INTERRUPT -. "用户稍后 approve / reject" .-> RESUME["apply_confirmation\nCommand(resume=decision)"]
+
+    RESUME -->|"approve + 来源是 plan"| PLAN
+    RESUME -->|"approve + 来源是 tool"| TOOL
+    RESUME -->|"reject"| PERSIST
+
+    FINALIZE --> PERSIST
+    PERSIST --> END((END))
 ```
 
-核心原则是让大模型负责理解、推理和决策，让后端工具与 MCP 服务负责真实业务动作，并通过租户隔离、人工确认、幂等控制和审计日志约束高风险操作。
+核心原则是让大模型负责理解、推理和决策，让后端工具与 MCP 服务负责真实业务动作，并通过租户隔离、人工确认、控制和审计日志约束高风险操作。
 
 ## 成本治理
 
