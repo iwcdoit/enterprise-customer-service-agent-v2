@@ -102,7 +102,7 @@
 
     .session-bar {
       display: grid;
-      grid-template-columns: 120px 120px minmax(220px, 1fr);
+      grid-template-columns: 110px 110px 120px minmax(220px, 1fr);
       gap: 10px;
       align-items: center;
     }
@@ -139,6 +139,28 @@
       display: flex;
       align-items: center;
       gap: 8px;
+    }
+
+    .mode-switch {
+      display: inline-flex;
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface-soft);
+    }
+
+    .mode-btn {
+      height: 28px;
+      padding: 0 10px;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .mode-btn.active {
+      color: white;
+      background: var(--blue);
     }
 
     .status {
@@ -416,6 +438,42 @@
       background: var(--surface-soft);
     }
 
+    .human-card {
+      display: grid;
+      gap: 7px;
+      padding: 11px;
+      text-align: left;
+    }
+
+    .human-card strong, .human-row strong { font-size: 13px; }
+    .human-card span, .human-row span { color: var(--muted); font-size: 12px; }
+    .human-card.active { border-color: #9bbcff; background: var(--blue-soft); }
+
+    .human-details, .human-controls {
+      display: grid;
+      gap: 10px;
+    }
+
+    .human-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding-bottom: 9px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .human-controls input, .human-controls textarea, .human-controls select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 9px 10px;
+      background: var(--surface);
+    }
+
+    .human-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .primary-btn { color: white; border-color: var(--blue); background: var(--blue); }
+    .confirm-btn { color: var(--green); border-color: #b7e1c1; background: var(--green-soft); }
+
     .trace-item {
       display: grid;
       grid-template-columns: 110px 1fr;
@@ -572,12 +630,20 @@
           <input id="userId" value="u001" autocomplete="off" />
         </div>
         <div class="field">
+          <label for="agentId">agent_id</label>
+          <input id="agentId" value="agent-001" autocomplete="off" />
+        </div>
+        <div class="field">
           <label for="conversationId">conversation_id</label>
           <input id="conversationId" placeholder="自动创建" autocomplete="off" />
         </div>
       </div>
 
       <div class="status-row">
+        <div class="mode-switch">
+          <button class="mode-btn active" data-mode="bot" type="button">智能客服</button>
+          <button class="mode-btn" data-mode="human" type="button">人工坐席</button>
+        </div>
         <span id="readyStatus" class="status"><span class="dot"></span>检查中</span>
         <button id="newSessionBtn" class="small-btn" type="button">新会话</button>
       </div>
@@ -586,15 +652,15 @@
     <main class="main-grid">
       <section class="panel">
         <div class="panel-header">
-          <div class="panel-title">场景</div>
-          <div class="panel-meta">运营验证</div>
+          <div id="listTitle" class="panel-title">场景</div>
+          <div id="listMeta" class="panel-meta">运营验证</div>
         </div>
         <div id="scenarioList" class="scenario-list"></div>
       </section>
 
       <section class="panel chat-panel">
         <div class="panel-header">
-          <div class="panel-title">对话</div>
+          <div id="chatTitle" class="panel-title">对话</div>
           <div class="toolbar-actions">
             <span id="loadingHint" class="loading hidden"><span class="spinner"></span>处理中</span>
             <button id="clearBtn" class="small-btn danger" type="button">清空</button>
@@ -613,18 +679,18 @@
         </form>
       </section>
 
-      <section class="panel evidence-panel">
+      <section id="evidencePanel" class="panel evidence-panel">
         <div class="panel-header">
-          <div class="panel-title">链路证据</div>
+          <div id="evidenceTitle" class="panel-title">链路证据</div>
           <div id="lastSummary" class="panel-meta">等待请求</div>
         </div>
-        <div class="metrics">
+        <div id="metrics" class="metrics">
           <div class="metric"><strong id="metricCache">-</strong><span>缓存</span></div>
           <div class="metric"><strong id="metricKnowledge">0</strong><span>知识块</span></div>
           <div class="metric"><strong id="metricTools">0</strong><span>工具</span></div>
           <div class="metric"><strong id="metricTrace">0</strong><span>阶段</span></div>
         </div>
-        <div class="tabs">
+        <div id="tabs" class="tabs">
           <button class="tab active" type="button" data-tab="trace">Trace</button>
           <button class="tab" type="button" data-tab="knowledge">Knowledge</button>
           <button class="tab" type="button" data-tab="tools">Tools</button>
@@ -673,15 +739,27 @@
     const state = {
       activeTab: "trace",
       lastResponse: null,
-      sending: false
+      lastQuestion: "",
+      sending: false,
+      workspaceMode: "bot",
+      handoffs: [],
+      selectedHandoff: null
     };
 
     const els = {
       tenantId: document.getElementById("tenantId"),
       userId: document.getElementById("userId"),
+      agentId: document.getElementById("agentId"),
       conversationId: document.getElementById("conversationId"),
       readyStatus: document.getElementById("readyStatus"),
       scenarioList: document.getElementById("scenarioList"),
+      listTitle: document.getElementById("listTitle"),
+      listMeta: document.getElementById("listMeta"),
+      chatTitle: document.getElementById("chatTitle"),
+      evidencePanel: document.getElementById("evidencePanel"),
+      evidenceTitle: document.getElementById("evidenceTitle"),
+      metrics: document.getElementById("metrics"),
+      tabs: document.getElementById("tabs"),
       messages: document.getElementById("messages"),
       questionInput: document.getElementById("questionInput"),
       skipCacheInput: document.getElementById("skipCacheInput"),
@@ -697,6 +775,15 @@
       metricTools: document.getElementById("metricTools"),
       metricTrace: document.getElementById("metricTrace")
     };
+
+    async function api(url, options = {}) {
+      const response = await fetch(url, options);
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.message || payload.detail || `HTTP ${response.status}`);
+      }
+      return payload;
+    }
 
     function renderScenarios() {
       els.scenarioList.innerHTML = "";
@@ -718,6 +805,61 @@
       });
     }
 
+    async function loadHumanQueue() {
+      els.scenarioList.innerHTML = `<div class="empty-state">正在加载人工队列</div>`;
+      try {
+        const query = new URLSearchParams({tenant_id: els.tenantId.value.trim() || "default"});
+        ["waiting_assignment", "assigned", "in_service", "resolution_submitted"].forEach(
+          (status) => query.append("status", status)
+        );
+        state.handoffs = await api(`/api/v1/human-support/queue?${query}`);
+        renderHumanQueue();
+      } catch (error) {
+        els.scenarioList.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+      }
+    }
+
+    function renderHumanQueue() {
+      els.scenarioList.innerHTML = "";
+      if (!state.handoffs.length) {
+        els.scenarioList.innerHTML = `<div class="empty-state">当前没有等待处理的会话</div>`;
+        return;
+      }
+      state.handoffs.forEach((item) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `human-card ${state.selectedHandoff?.id === item.id ? "active" : ""}`;
+        button.innerHTML = `
+          <strong>${escapeHtml(item.reason || "人工服务")}</strong>
+          <span>${escapeHtml(handoffStatusText(item.status))} · ${escapeHtml(item.priority)}</span>
+          <span>${escapeHtml(item.conversation_id.slice(0, 12))}</span>
+        `;
+        button.addEventListener("click", () => selectHandoff(item));
+        els.scenarioList.appendChild(button);
+      });
+    }
+
+    async function selectHandoff(item) {
+      state.selectedHandoff = item;
+      els.tenantId.value = item.tenant_id;
+      els.userId.value = item.user_id;
+      els.conversationId.value = item.conversation_id;
+      renderHumanQueue();
+      renderHumanEvidence();
+      try {
+        const query = new URLSearchParams({
+          tenant_id: item.tenant_id,
+          user_id: item.user_id,
+          message_limit: "100"
+        });
+        const detail = await api(`/api/v1/conversations/${encodeURIComponent(item.conversation_id)}?${query}`);
+        els.messages.innerHTML = "";
+        (detail.messages || []).forEach((message) => appendMessage(message.role, message.content));
+      } catch (error) {
+        appendMessage("assistant", `加载会话失败：${error.message}`);
+      }
+    }
+
     async function checkReady() {
       try {
         const response = await fetch("/health/ready");
@@ -736,8 +878,13 @@
       const trimmed = question.trim();
       if (!trimmed) return;
       setSending(true);
-      appendMessage("user", trimmed);
+      appendMessage(state.workspaceMode === "human" ? "assistant" : "user", trimmed);
       try {
+        if (state.workspaceMode === "human") {
+          await sendHumanReply(trimmed);
+          return;
+        }
+        state.lastQuestion = trimmed;
         const body = {
           tenant_id: els.tenantId.value.trim() || "default",
           user_id: els.userId.value.trim() || "u001",
@@ -772,12 +919,28 @@
       }
     }
 
+    async function sendHumanReply(content) {
+      const item = state.selectedHandoff;
+      if (!item) throw new Error("请先选择人工队列中的会话");
+      if (!item.assigned_agent_id) throw new Error("请先接入该会话");
+      const updated = await api(`/api/v1/human-support/${encodeURIComponent(item.id)}/messages`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          tenant_id: item.tenant_id,
+          agent_id: els.agentId.value.trim(),
+          content
+        })
+      });
+      updateSelectedHandoff(updated);
+    }
+
     function appendMessage(role, content) {
       const empty = els.messages.querySelector(".empty-state");
       if (empty) empty.remove();
       const wrapper = document.createElement("div");
       wrapper.className = `msg ${role}`;
-      const label = role === "user" ? "用户" : "客服";
+      const label = role === "user" ? "用户" : (state.workspaceMode === "human" ? "人工客服" : "客服");
       wrapper.innerHTML = `
         <div class="msg-label">${label}</div>
         <div class="bubble"></div>
@@ -799,6 +962,10 @@
     }
 
     function renderEvidence() {
+      if (state.workspaceMode === "human") {
+        renderHumanEvidence();
+        return;
+      }
       const payload = state.lastResponse;
       if (!payload) {
         els.evidenceBody.innerHTML = `<div class="empty-state">暂无链路数据</div>`;
@@ -872,9 +1039,173 @@
             <span class="${result && result.ok ? "tool-ok" : "tool-fail"}">${result ? (result.ok ? "ok" : "fail") : "pending"}</span>
           </div>
           <pre>${escapeHtml(JSON.stringify({ arguments: call.arguments, payload: result && result.payload }, null, 2))}</pre>
+          ${result?.payload?.requires_confirmation && result?.payload?.action_id
+            ? `<button class="small-btn confirm-btn" type="button" data-action-id="${escapeHtml(result.payload.action_id)}" data-tool-name="${escapeHtml(call.name)}">确认执行</button>`
+            : ""}
         `;
+        const confirmButton = node.querySelector("[data-action-id]");
+        if (confirmButton) {
+          confirmButton.addEventListener("click", () => approvePendingAction(
+            confirmButton.dataset.actionId,
+            confirmButton.dataset.toolName
+          ));
+        }
         list.appendChild(node);
       });
+    }
+
+    async function approvePendingAction(actionId, toolName) {
+      try {
+        await api(`/api/v1/confirmations/${encodeURIComponent(actionId)}/approve`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            tenant_id: els.tenantId.value.trim() || "default",
+            user_id: els.userId.value.trim() || "u001",
+            comment: "用户在验证台确认"
+          })
+        });
+        const body = {
+          tenant_id: els.tenantId.value.trim() || "default",
+          user_id: els.userId.value.trim() || "u001",
+          conversation_id: els.conversationId.value.trim(),
+          question: state.lastQuestion || `继续执行已确认的 ${toolName}`,
+          metadata: {skip_cache: true, confirmed_tools: [toolName]}
+        };
+        const payload = await api("/api/v1/chat", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(body)
+        });
+        state.lastResponse = payload;
+        appendMessage("assistant", payload.answer || "操作已确认");
+        renderEvidence();
+      } catch (error) {
+        appendMessage("assistant", `确认失败：${error.message}`);
+      }
+    }
+
+    function renderHumanEvidence() {
+      const item = state.selectedHandoff;
+      if (!item) {
+        els.evidenceBody.innerHTML = `<div class="empty-state">从左侧选择一个人工服务会话</div>`;
+        return;
+      }
+      const canAssign = item.status === "waiting_assignment";
+      const canResolve = ["assigned", "in_service"].includes(item.status);
+      const canConfirm = item.status === "resolution_submitted";
+      els.lastSummary.textContent = handoffStatusText(item.status);
+      els.evidenceBody.innerHTML = `
+        <div class="human-details">
+          <div class="human-row"><strong>状态</strong><span>${escapeHtml(handoffStatusText(item.status))}</span></div>
+          <div class="human-row"><strong>队列</strong><span>${escapeHtml(item.queue_name)}</span></div>
+          <div class="human-row"><strong>优先级</strong><span>${escapeHtml(item.priority)}</span></div>
+          <div class="human-row"><strong>当前坐席</strong><span>${escapeHtml(item.assigned_agent_id || "未分配")}</span></div>
+          <div class="human-row"><strong>转人工原因</strong><span>${escapeHtml(item.reason)}</span></div>
+          <div class="human-controls">
+            <div class="human-actions">
+              ${canAssign ? '<button id="assignHumanBtn" class="small-btn primary-btn" type="button">接入会话</button>' : ""}
+            </div>
+            ${canResolve ? `
+              <select id="resolutionCode">
+                <option value="resolved">问题已解决</option>
+                <option value="follow_up">需要后续跟进</option>
+              </select>
+              <textarea id="resolutionSummary" placeholder="填写模拟人工处理结果"></textarea>
+              <select id="nextMode">
+                <option value="resume_bot">恢复智能客服</option>
+                <option value="close_conversation">关闭会话</option>
+              </select>
+              <button id="submitResolutionBtn" class="small-btn primary-btn" type="button">提交处理结果</button>
+            ` : ""}
+            ${canConfirm ? `
+              <div class="trace-item"><div class="stage">待确认</div><div>${escapeHtml(item.resolution_summary || "")}</div></div>
+              <button id="confirmResolutionBtn" class="small-btn confirm-btn" type="button">确认并结束人工服务</button>
+            ` : ""}
+          </div>
+        </div>
+      `;
+      document.getElementById("assignHumanBtn")?.addEventListener(
+        "click", () => runHumanAction(assignSelectedHandoff)
+      );
+      document.getElementById("submitResolutionBtn")?.addEventListener(
+        "click", () => runHumanAction(submitHumanResolution)
+      );
+      document.getElementById("confirmResolutionBtn")?.addEventListener(
+        "click", () => runHumanAction(confirmHumanResolution)
+      );
+    }
+
+    async function runHumanAction(action) {
+      try {
+        await action();
+      } catch (error) {
+        appendMessage("assistant", `操作失败：${error.message}`);
+      }
+    }
+
+    async function assignSelectedHandoff() {
+      const item = state.selectedHandoff;
+      const updated = await api(`/api/v1/human-support/${encodeURIComponent(item.id)}/assign`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          tenant_id: item.tenant_id,
+          agent_id: els.agentId.value.trim(),
+          expected_version: item.version
+        })
+      });
+      updateSelectedHandoff(updated);
+    }
+
+    async function submitHumanResolution() {
+      const item = state.selectedHandoff;
+      const summary = document.getElementById("resolutionSummary").value.trim();
+      if (!summary) throw new Error("请填写处理结果");
+      const updated = await api(`/api/v1/human-support/${encodeURIComponent(item.id)}/resolution`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          tenant_id: item.tenant_id,
+          agent_id: els.agentId.value.trim(),
+          resolution_code: document.getElementById("resolutionCode").value,
+          summary,
+          next_mode: document.getElementById("nextMode").value
+        })
+      });
+      updateSelectedHandoff(updated);
+    }
+
+    async function confirmHumanResolution() {
+      const item = state.selectedHandoff;
+      const updated = await api(`/api/v1/human-support/${encodeURIComponent(item.id)}/resolution/confirm`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          tenant_id: item.tenant_id,
+          operator_id: els.agentId.value.trim(),
+          expected_version: item.version
+        })
+      });
+      updateSelectedHandoff(updated);
+      await loadHumanQueue();
+    }
+
+    function updateSelectedHandoff(updated) {
+      state.selectedHandoff = updated;
+      state.handoffs = state.handoffs.map((item) => item.id === updated.id ? updated : item);
+      renderHumanQueue();
+      renderHumanEvidence();
+    }
+
+    function handoffStatusText(status) {
+      return ({
+        waiting_assignment: "等待接入",
+        assigned: "已接入",
+        in_service: "服务中",
+        resolution_submitted: "待确认",
+        resolved: "已结束"
+      })[status] || status;
     }
 
     function renderRaw(payload) {
@@ -911,6 +1242,32 @@
       });
     });
 
+    document.querySelectorAll(".mode-btn").forEach((button) => {
+      button.addEventListener("click", async () => {
+        document.querySelectorAll(".mode-btn").forEach((node) => node.classList.remove("active"));
+        button.classList.add("active");
+        state.workspaceMode = button.dataset.mode;
+        const humanMode = state.workspaceMode === "human";
+        els.listTitle.textContent = humanMode ? "人工队列" : "场景";
+        els.listMeta.textContent = humanMode ? "模拟坐席" : "运营验证";
+        els.chatTitle.textContent = humanMode ? "人工会话" : "对话";
+        els.evidenceTitle.textContent = humanMode ? "处理信息" : "链路证据";
+        els.metrics.classList.toggle("hidden", humanMode);
+        els.tabs.classList.toggle("hidden", humanMode);
+        els.skipCacheInput.parentElement.classList.toggle("hidden", humanMode);
+        els.questionInput.placeholder = humanMode ? "输入模拟人工客服回复" : "输入用户问题";
+        state.selectedHandoff = null;
+        els.messages.innerHTML = `<div class="empty-state">${humanMode ? "从左侧选择人工会话" : "选择左侧场景，或直接输入用户问题。"}</div>`;
+        if (humanMode) {
+          await loadHumanQueue();
+          renderHumanEvidence();
+        } else {
+          renderScenarios();
+          renderEvidence();
+        }
+      });
+    });
+
     els.chatForm.addEventListener("submit", (event) => {
       event.preventDefault();
       sendQuestion(els.questionInput.value);
@@ -925,7 +1282,11 @@
     els.newSessionBtn.addEventListener("click", () => {
       els.conversationId.value = "";
       state.lastResponse = null;
-      renderEvidence();
+      if (state.workspaceMode === "human") {
+        loadHumanQueue();
+      } else {
+        renderEvidence();
+      }
     });
 
     renderScenarios();
