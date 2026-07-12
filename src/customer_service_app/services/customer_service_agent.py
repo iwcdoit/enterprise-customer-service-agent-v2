@@ -28,6 +28,7 @@ from customer_service_app.services.confirmation_service import ConfirmationServi
 from customer_service_app.services.conversation_service import ConversationService
 from customer_service_app.services.conversation_memory import ConversationMemoryCompactor
 from customer_service_app.services.cost_governance_service import CostGovernanceService
+from customer_service_app.services.human_support_service import HumanSupportService
 from customer_service_app.services.planner_service import PlannerService
 from customer_service_app.services.question_preprocessor import QuestionPreprocessor
 from customer_service_app.services.rag_service import RagService
@@ -55,6 +56,7 @@ class CustomerServiceAgent:
         business_gateway: BusinessGateway,
         semantic_cache: RedisSemanticCache | None,
         cost_service: CostGovernanceService,
+        human_support_service: HumanSupportService,
     ):
         """注入处理一轮客服请求所需的依赖。"""
 
@@ -67,6 +69,7 @@ class CustomerServiceAgent:
         self._business_gateway = business_gateway
         self._semantic_cache = semantic_cache
         self._cost_service = cost_service
+        self._human_support_service = human_support_service
         self._conversation_service = ConversationService(session)
         self._confirmation_service = ConfirmationService(session, settings)
         self._memory_compactor = ConversationMemoryCompactor()
@@ -107,6 +110,41 @@ class CustomerServiceAgent:
         """统一从 LangGraph 编排入口处理一轮客服请求。"""
 
         try:
+            # 人工接管后，会话入口只转发并保存消息，不再同时触发 Bot。
+            if request.conversation_id:
+                handoff = await self._human_support_service.get_active_for_customer(
+                    tenant_id=request.tenant_id,
+                    user_id=request.user_id,
+                    conversation_id=request.conversation_id,
+                )
+                if handoff is not None:
+                    await self._human_support_service.accept_customer_message(
+                        handoff=handoff,
+                        content=request.question,
+                        metadata=request.metadata,
+                    )
+                    answer = (
+                        "消息已发送给人工客服，当前会话由模拟坐席处理。"
+                        if handoff.assigned_agent_id
+                        else "已进入人工客服队列，坐席接入后会继续处理。"
+                    )
+                    await self._human_support_service.add_service_notice(
+                        handoff=handoff,
+                        content=answer,
+                    )
+                    await self._session.commit()
+                    return ChatResponse(
+                        conversation_id=request.conversation_id,
+                        answer=answer,
+                        service_mode="human",
+                        human_handoff=self._human_support_service.to_view(handoff),
+                        trace=[
+                            ChatTraceStep(
+                                stage="human_support",
+                                detail="会话已由人工客服接管，本轮未调用模型",
+                            )
+                        ],
+                    )
             return await self._graph_runtime.invoke(request)
         except Exception:
             await self._session.rollback()

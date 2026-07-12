@@ -6,6 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from customer_service_app.domain.cost import CostStrategy
+from customer_service_app.domain.human_support import HumanHandoffView
 from customer_service_app.domain.planning import AgentPlan, PlanExecutionResult
 
 
@@ -115,6 +116,8 @@ class ChatResponse(BaseModel):
     tool_results: list[ToolResultView] = Field(default_factory=list)
     plan: AgentPlan | None = None
     plan_execution: PlanExecutionResult | None = None
+    service_mode: str = "bot"
+    human_handoff: HumanHandoffView | None = None
     trace: list[ChatTraceStep] = Field(default_factory=list)
 
 

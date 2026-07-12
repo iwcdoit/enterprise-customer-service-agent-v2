@@ -8,6 +8,7 @@ from customer_service_app.api.routes_chat import router as chat_router
 from customer_service_app.api.routes_confirmations import router as confirmations_router
 from customer_service_app.api.routes_conversations import router as conversations_router
 from customer_service_app.api.routes_health import router as health_router
+from customer_service_app.api.routes_human_support import router as human_support_router
 from customer_service_app.api.routes_ops import router as ops_router
 from customer_service_app.core.config import get_settings
 from customer_service_app.core.exceptions import AppError
@@ -35,6 +36,7 @@ def create_app() -> FastAPI:
     app.include_router(chat_router, prefix=settings.api_prefix)
     app.include_router(confirmations_router, prefix=settings.api_prefix)
     app.include_router(conversations_router, prefix=settings.api_prefix)
+    app.include_router(human_support_router, prefix=settings.api_prefix)
 
     @app.exception_handler(AppError)
     async def app_error_handler(_: Request, exc: AppError) -> JSONResponse:

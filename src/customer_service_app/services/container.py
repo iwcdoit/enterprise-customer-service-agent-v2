@@ -12,6 +12,7 @@ from customer_service_app.infrastructure.vector_store.factory import build_vecto
 from customer_service_app.services.business_gateway import BusinessGateway
 from customer_service_app.services.cost_governance_service import CostGovernanceService
 from customer_service_app.services.customer_service_agent import CustomerServiceAgent
+from customer_service_app.services.human_support_service import HumanSupportService
 from customer_service_app.services.rag_service import RagService
 from customer_service_app.tools.default_registry import build_default_tool_registry
 
@@ -38,10 +39,12 @@ def build_customer_service_agent(session: AsyncSession) -> CustomerServiceAgent:
     semantic_cache = (
         RedisSemanticCache(settings, embedding_client) if settings.semantic_cache_enabled else None
     )
+    human_support_service = HumanSupportService(session)
     business_gateway = BusinessGateway(
         settings=settings,
         session=session,
         mcp_client=build_after_sales_mcp_client(settings),
+        human_support_service=human_support_service,
     )
     return CustomerServiceAgent(
         settings=settings,
@@ -53,4 +56,5 @@ def build_customer_service_agent(session: AsyncSession) -> CustomerServiceAgent:
         business_gateway=business_gateway,
         semantic_cache=semantic_cache,
         cost_service=CostGovernanceService(settings=settings, session=session),
+        human_support_service=human_support_service,
     )

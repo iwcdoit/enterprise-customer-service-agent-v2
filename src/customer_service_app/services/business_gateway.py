@@ -8,6 +8,7 @@ from customer_service_app.core.config import Settings
 from customer_service_app.infrastructure.db.repositories import OrderRepository, TicketRepository
 from customer_service_app.infrastructure.mcp.approval import build_approval_token
 from customer_service_app.infrastructure.mcp.base import MCPBusinessClient
+from customer_service_app.services.human_support_service import HumanSupportService
 
 
 class BusinessGateway:
@@ -23,10 +24,12 @@ class BusinessGateway:
         settings: Settings,
         session: AsyncSession,
         mcp_client: MCPBusinessClient | None,
+        human_support_service: HumanSupportService | None = None,
     ):
         self._settings = settings
         self._session = session
         self._mcp_client = mcp_client
+        self._human_support_service = human_support_service
 
     async def query_order_status(
         self,
@@ -128,15 +131,40 @@ class BusinessGateway:
                 user_id=user_id,
                 arguments=arguments,
             )
-            return await self._mcp_client.call_tool(name=mcp_tool_name, arguments=arguments)
+            result = await self._mcp_client.call_tool(name=mcp_tool_name, arguments=arguments)
+        else:
+            ticket = await TicketRepository(self._session).create(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                category="human_handoff",
+                title="转人工处理",
+                detail=reason,
+                priority=priority,
+            )
+            result = {
+                "ticket_id": ticket.id,
+                "status": ticket.status,
+                "message": "已创建人工客服工单",
+            }
 
-        ticket = await TicketRepository(self._session).create(
-            tenant_id=tenant_id,
-            user_id=user_id,
-            conversation_id=conversation_id,
-            category="human_handoff",
-            title="转人工处理",
-            detail=reason,
-            priority=priority,
-        )
-        return {"ticket_id": ticket.id, "status": ticket.status, "message": "已创建人工客服工单"}
+        # 外部工单只表示业务系统已受理；本地接管记录负责控制当前会话由 Bot 还是人工处理。
+        if conversation_id and self._human_support_service is not None:
+            ticket_id = str(result.get("ticket_id") or "") or None
+            handoff = await self._human_support_service.start_handoff(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                support_ticket_id=ticket_id,
+                origin_thread_id=None,
+                reason=reason,
+                priority=priority,
+                queue_name="complaint" if priority == "urgent" else "general",
+                idempotency_key=f"handoff:{tenant_id}:{ticket_id or conversation_id}",
+            )
+            result.update(
+                handoff_id=handoff.id,
+                handoff_status=handoff.status,
+                service_mode="waiting_human",
+            )
+        return result
