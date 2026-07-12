@@ -134,6 +134,7 @@ class ConversationView(BaseModel):
     user_id: str
     title: str
     status: str
+    service_mode: str = "bot"
 
 
 class ConversationMessageView(BaseModel):

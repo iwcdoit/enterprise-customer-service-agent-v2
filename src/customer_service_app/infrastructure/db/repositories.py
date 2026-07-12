@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.exc import StaleDataError
 
+from customer_service_app.core.exceptions import AppError
 from customer_service_app.infrastructure.db.models import (
     Conversation,
+    HumanHandoffSession,
     Message,
     Order,
     PendingAction,
@@ -137,6 +140,140 @@ class TicketRepository:
         self._session.add(ticket)
         await self._session.flush()
         return ticket
+
+
+class HumanHandoffRepository:
+    """人工接管状态的数据访问边界。"""
+
+    ACTIVE_STATUSES = {
+        "waiting_assignment",
+        "assigned",
+        "in_service",
+        "resolution_submitted",
+    }
+
+    def __init__(self, session: AsyncSession):
+        self._session = session
+
+    async def create_or_get(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        conversation_id: str,
+        support_ticket_id: str | None,
+        origin_thread_id: str | None,
+        reason: str,
+        priority: str,
+        queue_name: str,
+        idempotency_key: str,
+    ) -> HumanHandoffSession:
+        """按幂等键创建人工接管记录，避免重试生成重复队列任务。"""
+        existing = await self.get_by_idempotency_key(
+            tenant_id=tenant_id,
+            idempotency_key=idempotency_key,
+        )
+        if existing is not None:
+            return existing
+
+        item = HumanHandoffSession(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            support_ticket_id=support_ticket_id,
+            origin_thread_id=origin_thread_id,
+            reason=reason,
+            priority=priority,
+            queue_name=queue_name,
+            idempotency_key=idempotency_key,
+        )
+        self._session.add(item)
+        await self._session.flush()
+        return item
+
+    async def get_by_idempotency_key(
+        self,
+        *,
+        tenant_id: str,
+        idempotency_key: str,
+    ) -> HumanHandoffSession | None:
+        result = await self._session.execute(
+            select(HumanHandoffSession).where(
+                HumanHandoffSession.tenant_id == tenant_id,
+                HumanHandoffSession.idempotency_key == idempotency_key,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def get_owned(
+        self,
+        *,
+        tenant_id: str,
+        handoff_id: str,
+    ) -> HumanHandoffSession | None:
+        """按租户读取接管记录，避免坐席跨租户访问。"""
+        result = await self._session.execute(
+            select(HumanHandoffSession).where(
+                HumanHandoffSession.id == handoff_id,
+                HumanHandoffSession.tenant_id == tenant_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def get_active_for_conversation(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        conversation_id: str,
+    ) -> HumanHandoffSession | None:
+        result = await self._session.execute(
+            select(HumanHandoffSession)
+            .where(
+                HumanHandoffSession.tenant_id == tenant_id,
+                HumanHandoffSession.user_id == user_id,
+                HumanHandoffSession.conversation_id == conversation_id,
+                HumanHandoffSession.status.in_(self.ACTIVE_STATUSES),
+            )
+            .order_by(HumanHandoffSession.requested_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def list_queue(
+        self,
+        *,
+        tenant_id: str,
+        statuses: list[str] | None,
+        limit: int,
+    ) -> list[HumanHandoffSession]:
+        statement = select(HumanHandoffSession).where(
+            HumanHandoffSession.tenant_id == tenant_id
+        )
+        if statuses:
+            statement = statement.where(HumanHandoffSession.status.in_(statuses))
+        statement = statement.order_by(
+            case(
+                (HumanHandoffSession.priority == "urgent", 0),
+                (HumanHandoffSession.priority == "high", 1),
+                (HumanHandoffSession.priority == "normal", 2),
+                else_=3,
+            ),
+            HumanHandoffSession.requested_at.asc(),
+        ).limit(limit)
+        result = await self._session.execute(statement)
+        return list(result.scalars().all())
+
+    async def flush(self) -> None:
+        """提交本轮 ORM 变更，并把并发更新转换成稳定的业务错误。"""
+        try:
+            await self._session.flush()
+        except StaleDataError as exc:
+            raise AppError(
+                "人工服务状态已被其他坐席更新，请刷新后重试",
+                code="handoff_version_conflict",
+                status_code=409,
+            ) from exc
 
 
 class UsageRepository:

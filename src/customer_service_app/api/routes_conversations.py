@@ -109,6 +109,7 @@ def _to_conversation_view(conversation: Conversation) -> ConversationView:
         user_id=conversation.user_id,
         title=conversation.title,
         status=conversation.status,
+        service_mode=conversation.service_mode,
     )
 
 
