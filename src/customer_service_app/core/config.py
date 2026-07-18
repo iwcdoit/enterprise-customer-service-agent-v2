@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     opensearch_index: str = "customer_service_knowledge"
     opensearch_timeout_seconds: int = 10
     opensearch_analyzer: str = "cjk"
+    rerank_enabled: bool = False
+    rerank_base_url: str = ""
+    rerank_api_key: str = ""
+    rerank_model: str = ""
+    rerank_timeout_seconds: int = 15
 
     cost_governance_enabled: bool = True
     tenant_default_tier: str = "standard"

@@ -76,3 +76,12 @@ def test_markdown_chunk_ids_are_stable_for_same_source_and_content() -> None:
 
     assert [item.id for item in first] == [item.id for item in second]
     assert first[0].metadata["document_id"] == second[0].metadata["document_id"]
+
+
+def test_markdown_chunk_update_keeps_id_and_changes_content_hash() -> None:
+    chunker = MarkdownKnowledgeChunker()
+    before = chunker.chunk(text="# 政策\n\n退款一个工作日到账。", source="policy/refund.md")
+    after = chunker.chunk(text="# 政策\n\n退款三个工作日到账。", source="policy/refund.md")
+
+    assert before[0].id == after[0].id
+    assert before[0].metadata["content_hash"] != after[0].metadata["content_hash"]

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import inspect
 import sys
 from pathlib import Path
+from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,17 +19,21 @@ from customer_service_app.infrastructure.knowledge_ingestion import (  # noqa: E
     ChunkingConfig,
     MarkdownKnowledgeChunker,
 )
+from customer_service_app.infrastructure.lexical_search import (  # noqa: E402
+    build_lexical_retriever,
+)
 from customer_service_app.infrastructure.vector_store.factory import (  # noqa: E402
     build_vector_store,
 )
 
 
 async def ingest(directory: Path, tenant_id: str) -> None:
-    """结构化切分 Markdown，批量向量化并写入租户隔离的向量库。"""
+    """结构化切分 Markdown，并把同一批 chunk 写入向量库与 BM25 索引。"""
 
     settings = get_settings()
     embedding_client = build_embedding_client(settings)
     vector_store = build_vector_store(settings)
+    lexical_retriever = build_lexical_retriever(settings)
     chunker = MarkdownKnowledgeChunker(
         ChunkingConfig(
             max_chars=settings.knowledge_chunk_max_chars,
@@ -36,8 +42,9 @@ async def ingest(directory: Path, tenant_id: str) -> None:
         )
     )
 
+    paths = sorted(directory.rglob("*.md"))
     chunks = []
-    for path in sorted(directory.rglob("*.md")):
+    for path in paths:
         source = path.relative_to(directory).as_posix()
         chunks.extend(
             chunker.chunk(
@@ -51,21 +58,43 @@ async def ingest(directory: Path, tenant_id: str) -> None:
         print("No markdown documents found.")
         return
 
-    batch_size = max(settings.knowledge_ingest_batch_size, 1)
-    for start in range(0, len(chunks), batch_size):
-        batch = chunks[start : start + batch_size]
-        vectors = await embedding_client.embed_documents([item.content for item in batch])
-        await vector_store.upsert_chunks(
-            tenant_id=tenant_id,
-            chunks=batch,
-            vectors=vectors,
-        )
+    try:
+        batch_size = max(settings.knowledge_ingest_batch_size, 1)
+        for start in range(0, len(chunks), batch_size):
+            batch = chunks[start : start + batch_size]
+            vectors = await embedding_client.embed_documents([item.content for item in batch])
+            await vector_store.upsert_chunks(
+                tenant_id=tenant_id,
+                chunks=batch,
+                vectors=vectors,
+            )
+            if lexical_retriever is not None:
+                await lexical_retriever.upsert_chunks(tenant_id=tenant_id, chunks=batch)
+    finally:
+        await _close_resource(lexical_retriever)
+        await _close_resource(vector_store)
+        await _close_resource(embedding_client)
 
+    destinations = [settings.vector_store_provider]
+    if lexical_retriever is not None:
+        destinations.append("opensearch-bm25")
     print(
-        f"Ingested {len(chunks)} structured chunks from "
-        f"{len(list(directory.rglob('*.md')))} documents into "
-        f"{settings.vector_store_provider}."
+        f"Ingested {len(chunks)} structured chunks from {len(paths)} documents "
+        f"into {', '.join(destinations)}."
     )
+
+
+async def _close_resource(resource: Any) -> None:
+    """脚本退出前关闭已创建的 SDK 客户端。"""
+
+    if resource is None:
+        return
+    close = getattr(resource, "close", None) or getattr(resource, "aclose", None)
+    if close is None:
+        return
+    result = close()
+    if inspect.isawaitable(result):
+        await result
 
 
 def parse_args() -> argparse.Namespace:

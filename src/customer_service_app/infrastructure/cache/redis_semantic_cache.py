@@ -133,3 +133,9 @@ class RedisSemanticCache:
         if denominator == 0:
             return 0.0
         return float(np.dot(a, b) / denominator)
+
+    async def close(self) -> None:
+        """关闭语义缓存的 Redis 连接池。"""
+
+        if self._redis is not None:
+            await self._redis.aclose()

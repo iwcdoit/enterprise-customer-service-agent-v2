@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 import uuid
 from dataclasses import dataclass, field
@@ -81,10 +82,11 @@ class MarkdownKnowledgeChunker:
         document_id = str(uuid.uuid5(uuid.NAMESPACE_URL, source))
         result: list[KnowledgeChunk] = []
         for index, draft in enumerate(drafts):
+            # ID 只由文档、section 和块序号决定，内容更新后 upsert 会覆盖旧块。
             chunk_id = str(
                 uuid.uuid5(
                     uuid.NAMESPACE_URL,
-                    f"{source}:{draft.section_index}:{index}:{draft.content}",
+                    f"{source}:{draft.section_index}:{index}",
                 )
             )
             chunk_metadata = {
@@ -98,6 +100,7 @@ class MarkdownKnowledgeChunker:
                 "heading_path": draft.heading_path,
                 "overlap_chars": draft.overlap_chars,
                 "char_count": len(draft.content),
+                "content_hash": hashlib.sha256(draft.content.encode("utf-8")).hexdigest(),
             }
             result.append(
                 KnowledgeChunk(

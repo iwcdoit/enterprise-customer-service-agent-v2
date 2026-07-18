@@ -191,6 +191,12 @@ class MilvusKnowledgeVectorStore(KnowledgeVectorStore):
         except Exception as exc:
             raise ExternalServiceError(f"Milvus upsert failed: {exc}") from exc
 
+    async def close(self) -> None:
+        """在线程池中关闭 Milvus 同步客户端。"""
+
+        if self._client is not None:
+            await asyncio.to_thread(self._client.close)
+
 
 def _first_result_set(result_sets: Any) -> list[Any]:
     if not result_sets:

@@ -122,3 +122,9 @@ class QdrantKnowledgeVectorStore(KnowledgeVectorStore):
             )
         except Exception as exc:
             raise ExternalServiceError(f"Qdrant upsert failed: {exc}") from exc
+
+    async def close(self) -> None:
+        """关闭 Qdrant 异步客户端。"""
+
+        if self._client is not None:
+            await self._client.close()

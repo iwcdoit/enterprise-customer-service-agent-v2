@@ -307,12 +307,17 @@ class CustomerServiceAgent:
             tenant_id=request.tenant_id,
             question=request.question,
             top_k=cost_strategy.rag_top_k,
+            use_rerank=cost_strategy.use_rerank,
         )
         trace.append(
             ChatTraceStep(
                 stage="rag",
                 detail="完成知识库检索",
-                metadata={"chunk_count": len(knowledge)},
+                metadata={
+                    "chunk_count": len(knowledge),
+                    "retrieval_mode": self._settings.retrieval_mode,
+                    "rerank": cost_strategy.use_rerank,
+                },
             )
         )
 

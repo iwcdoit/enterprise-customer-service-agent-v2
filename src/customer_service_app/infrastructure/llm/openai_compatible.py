@@ -128,3 +128,9 @@ class OpenAICompatibleLLMClient(LLMClient):
                     yield delta.content
         except Exception as exc:
             raise ExternalServiceError(f"LLM stream request failed: {exc}") from exc
+
+    async def close(self) -> None:
+        """释放 OpenAI-compatible HTTP 连接池。"""
+
+        if self._client is not None:
+            await self._client.close()

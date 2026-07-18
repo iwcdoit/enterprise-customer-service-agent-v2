@@ -67,3 +67,9 @@ class OpenAICompatibleEmbeddingClient(EmbeddingClient):
         if provider in {"dashscope", "bailian", "aliyun"} or model.startswith("text-embedding-v4"):
             payload["dimensions"] = self._settings.embedding_dimension
         return payload
+
+    async def close(self) -> None:
+        """释放 Embedding HTTP 连接池。"""
+
+        if self._client is not None:
+            await self._client.close()
