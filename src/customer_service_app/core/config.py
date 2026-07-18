@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     milvus_collection: str = "customer_service_knowledge"
     rag_top_k: int = 5
     rag_score_threshold: float = 0.35
+    knowledge_chunk_max_chars: int = 900
+    knowledge_chunk_min_chars: int = 160
+    knowledge_chunk_overlap_chars: int = 120
+    knowledge_ingest_batch_size: int = 64
 
     cost_governance_enabled: bool = True
     tenant_default_tier: str = "standard"
