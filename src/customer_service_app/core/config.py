@@ -62,6 +62,19 @@ class Settings(BaseSettings):
     knowledge_chunk_min_chars: int = 160
     knowledge_chunk_overlap_chars: int = 120
     knowledge_ingest_batch_size: int = 64
+    retrieval_mode: str = "hybrid"
+    hybrid_candidate_multiplier: int = 3
+    hybrid_rrf_k: int = 60
+    hybrid_dense_weight: float = 1.0
+    hybrid_lexical_weight: float = 1.0
+    opensearch_enabled: bool = False
+    opensearch_url: str = ""
+    opensearch_api_key: str = ""
+    opensearch_username: str = ""
+    opensearch_password: str = ""
+    opensearch_index: str = "customer_service_knowledge"
+    opensearch_timeout_seconds: int = 10
+    opensearch_analyzer: str = "cjk"
 
     cost_governance_enabled: bool = True
     tenant_default_tier: str = "standard"
