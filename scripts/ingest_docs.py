@@ -42,7 +42,10 @@ async def ingest(directory: Path, tenant_id: str) -> None:
         )
     )
 
-    paths = sorted(directory.rglob("*.md"))
+    # 目录 README 只是维护说明，不是面向用户的业务知识。
+    paths = sorted(
+        path for path in directory.rglob("*.md") if path.name.lower() != "readme.md"
+    )
     chunks = []
     for path in paths:
         source = path.relative_to(directory).as_posix()
@@ -55,6 +58,9 @@ async def ingest(directory: Path, tenant_id: str) -> None:
         )
 
     if not chunks:
+        await _close_resource(lexical_retriever)
+        await _close_resource(vector_store)
+        await _close_resource(embedding_client)
         print("No markdown documents found.")
         return
 

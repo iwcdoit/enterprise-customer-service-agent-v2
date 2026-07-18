@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src ./src
 COPY scripts ./scripts
 COPY mcp_services ./mcp_services
-COPY sample_knowledge ./sample_knowledge
+COPY knowledge_base ./knowledge_base
 COPY .env.example ./.env.example
 
 EXPOSE 8000

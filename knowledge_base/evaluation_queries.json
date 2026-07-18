@@ -1,0 +1,22 @@
+[
+  {"id": "exact-policy-code", "query": "AFS-RET-007 是什么规则？", "expected_source": "policies/七天无理由退货政策.md", "kind": "exact"},
+  {"id": "semantic-return", "query": "耳机拆开卫生封签后还能不说原因直接退吗？", "expected_source": "matrices/商品类目退换限制矩阵.md", "kind": "semantic"},
+  {"id": "refund-arrival", "query": "银行卡退款一般几天到账？", "expected_source": "faq/退款到账常见问题.md", "kind": "semantic"},
+  {"id": "payment-account", "query": "能不能把退款改到另一张卡？", "expected_source": "faq/退款到账常见问题.md", "kind": "semantic"},
+  {"id": "logistics-code", "query": "LOG-SLA-48 规定多少小时可以催查？", "expected_source": "announcements/春节物流时效公告.md", "kind": "exact"},
+  {"id": "delivered-missing", "query": "快递说已签收但我没收到怎么处理？", "expected_source": "faq/订单与物流常见问题.md", "kind": "semantic"},
+  {"id": "defect-evidence", "query": "耳机功能异常申请售后需要拍什么凭证？", "expected_source": "policies/质量问题退换货政策.md", "kind": "semantic"},
+  {"id": "refund-sop", "query": "真正帮用户创建退款前要做哪些步骤？", "expected_source": "sop/退款申请处理流程.md", "kind": "semantic"},
+  {"id": "handoff", "query": "机器客服什么情况必须转人工？", "expected_source": "sop/投诉升级与转人工流程.md", "kind": "semantic"},
+  {"id": "earbud-pairing", "query": "两只蓝牙耳机只有一边响如何重置？", "expected_source": "manuals/智能耳机使用与保修手册.md", "kind": "semantic"},
+  {"id": "battery-safety", "query": "电池鼓包发热还能继续充电测试吗？", "expected_source": "troubleshooting/充电与电源故障排查.md", "kind": "semantic"},
+  {"id": "appliance-smoke", "query": "小家电冒烟并且有烧焦味要如何处理？", "expected_source": "manuals/小家电安装与保养手册.md", "kind": "semantic"},
+  {"id": "member-rights", "query": "会员是不是可以跳过售后凭证审核？", "expected_source": "benefits/会员售后权益.md", "kind": "semantic"},
+  {"id": "enterprise-contract", "query": "企业客户的专属合同和通用售后规则冲突时听哪个？", "expected_source": "benefits/企业客户服务权益.md", "kind": "semantic"},
+  {"id": "price-code", "query": "PRICE-618-30 的价保周期是多久？", "expected_source": "announcements/618价保活动公告.md", "kind": "exact"},
+  {"id": "compensation", "query": "平台导致履约延误时自动补偿上限是什么？", "expected_source": "matrices/售后赔付标准矩阵.md", "kind": "semantic"},
+  {"id": "risk-evidence", "query": "用户短期内多次要求高额仅退款应该怎么处理？", "expected_source": "risk/异常退款与凭证规则.md", "kind": "semantic"},
+  {"id": "security-secret", "query": "客服会向我要支付密码和短信验证码吗？", "expected_source": "risk/账户与支付安全提醒.md", "kind": "semantic"},
+  {"id": "merchant-evidence", "query": "商家在订单争议中可以提供哪些履约证据？", "expected_source": "merchant/商家履约与举证规则.md", "kind": "semantic"},
+  {"id": "p1-sla", "query": "企业客户 P1 故障的首次人工响应目标是多久？", "expected_source": "sla/企业客户响应时效.md", "kind": "exact"}
+]
