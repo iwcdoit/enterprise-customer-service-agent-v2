@@ -1,0 +1,832 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent 系统架构与完整链路图谱</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172033;
+      --muted: #65718a;
+      --line: #d7deea;
+      --panel: #ffffff;
+      --page: #eef2f7;
+      --blue: #2463d4;
+      --blue-soft: #eaf1ff;
+      --green: #2f855a;
+      --green-soft: #eaf8ef;
+      --amber: #b15c00;
+      --amber-soft: #fff4df;
+      --red: #c13c36;
+      --red-soft: #fff0ef;
+      --cyan: #11788a;
+      --cyan-soft: #e8f7f9;
+      --gray: #526077;
+      --gray-soft: #f1f4f8;
+      font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; overflow: hidden; background: var(--page); color: var(--ink); }
+    button, input { font: inherit; letter-spacing: 0; }
+    .app { height: 100%; display: grid; grid-template-rows: 70px minmax(0, 1fr); }
+    header {
+      display: flex; align-items: center; gap: 18px; padding: 0 20px;
+      background: #fff; border-bottom: 1px solid var(--line); min-width: 0;
+    }
+    .brand { min-width: 310px; }
+    .brand h1 { font-size: 19px; margin: 0; font-weight: 750; }
+    .brand p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+    .search { flex: 1; max-width: 520px; position: relative; }
+    .search input {
+      width: 100%; height: 38px; border: 1px solid var(--line); background: #f8fafc;
+      padding: 0 38px 0 12px; border-radius: 6px; color: var(--ink); outline: none;
+    }
+    .search input:focus { border-color: #8badf2; background: #fff; }
+    .search span { position: absolute; right: 12px; top: 9px; color: var(--muted); font-size: 13px; }
+    .toolbar { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+    .icon-btn {
+      width: 36px; height: 36px; border: 1px solid var(--line); background: #fff; color: var(--ink);
+      border-radius: 6px; cursor: pointer; font-size: 18px; display: grid; place-items: center;
+    }
+    .icon-btn:hover { background: #f3f6fa; border-color: #aeb9ca; }
+    .zoom-label { width: 55px; text-align: center; color: var(--muted); font-size: 12px; }
+    .layout { min-height: 0; display: grid; grid-template-columns: 260px minmax(0, 1fr) 330px; }
+    nav { background: #fff; border-right: 1px solid var(--line); overflow-y: auto; padding: 16px 12px; }
+    .nav-title { padding: 0 8px 10px; font-size: 11px; color: var(--muted); font-weight: 700; text-transform: uppercase; }
+    .nav-item {
+      width: 100%; text-align: left; border: 1px solid transparent; background: transparent; padding: 11px 10px;
+      border-radius: 6px; cursor: pointer; margin-bottom: 5px; color: var(--ink); display: grid;
+      grid-template-columns: 28px 1fr; gap: 8px;
+    }
+    .nav-item:hover { background: #f4f7fb; }
+    .nav-item.active { background: var(--blue-soft); border-color: #b7cdf9; color: #164da9; }
+    .nav-num { font-weight: 800; color: var(--blue); }
+    .nav-name { font-size: 13px; font-weight: 700; }
+    .nav-desc { grid-column: 2; color: var(--muted); font-size: 11px; line-height: 1.45; margin-top: 2px; }
+    main { min-width: 0; min-height: 0; display: grid; grid-template-rows: 48px minmax(0, 1fr) 34px; }
+    .view-head {
+      display: flex; align-items: center; gap: 14px; padding: 0 16px; background: #f8fafc;
+      border-bottom: 1px solid var(--line);
+    }
+    .view-head h2 { font-size: 15px; margin: 0; }
+    .view-head p { margin: 0; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .canvas-wrap { position: relative; min-height: 0; overflow: hidden; background: #f4f6f9; cursor: grab; }
+    .canvas-wrap.dragging { cursor: grabbing; }
+    svg { width: 100%; height: 100%; display: block; user-select: none; }
+    .grid-pattern { opacity: .55; }
+    .section-box { fill: #fff; stroke: #cbd4e1; stroke-width: 2; rx: 8; }
+    .section-title { font-size: 22px; font-weight: 750; fill: #33415c; }
+    .section-note { font-size: 15px; fill: #7a879d; }
+    .edge { fill: none; stroke: #8190a8; stroke-width: 3; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 9 8; }
+    .edge-label-bg { fill: #f8fafc; stroke: #d7deea; rx: 4; }
+    .edge-label { font-size: 14px; fill: #536178; text-anchor: middle; }
+    .node-card { cursor: pointer; filter: drop-shadow(0 2px 2px rgba(30, 48, 78, .08)); }
+    .node-card:hover .node-bg, .node-card.selected .node-bg { stroke-width: 4; }
+    .node-bg { stroke-width: 2; rx: 7; }
+    .node-blue .node-bg { fill: var(--blue-soft); stroke: var(--blue); }
+    .node-green .node-bg { fill: var(--green-soft); stroke: var(--green); }
+    .node-amber .node-bg { fill: var(--amber-soft); stroke: var(--amber); }
+    .node-red .node-bg { fill: var(--red-soft); stroke: var(--red); }
+    .node-cyan .node-bg { fill: var(--cyan-soft); stroke: var(--cyan); }
+    .node-gray .node-bg { fill: var(--gray-soft); stroke: var(--gray); }
+    .node-index { font-size: 14px; font-weight: 800; fill: #fff; text-anchor: middle; dominant-baseline: middle; }
+    .node-index-bg.blue { fill: var(--blue); }
+    .node-index-bg.green { fill: var(--green); }
+    .node-index-bg.amber { fill: var(--amber); }
+    .node-index-bg.red { fill: var(--red); }
+    .node-index-bg.cyan { fill: var(--cyan); }
+    .node-index-bg.gray { fill: var(--gray); }
+    .node-title { font-size: 18px; font-weight: 760; color: var(--ink); line-height: 1.2; }
+    .node-lines { font-size: 14px; color: #4f5d73; line-height: 1.45; margin-top: 7px; }
+    .node-code { font-size: 12px; color: #536f9f; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .legend {
+      display: flex; align-items: center; gap: 18px; padding: 0 16px; background: #fff;
+      border-top: 1px solid var(--line); color: var(--muted); font-size: 11px;
+    }
+    .legend-item { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+    .swatch { width: 10px; height: 10px; border-radius: 2px; }
+    aside { background: #fff; border-left: 1px solid var(--line); overflow-y: auto; padding: 18px; }
+    .detail-eyebrow { color: var(--blue); font-size: 11px; font-weight: 800; margin-bottom: 7px; }
+    aside h3 { margin: 0 0 8px; font-size: 18px; line-height: 1.3; }
+    .detail-summary { color: var(--muted); line-height: 1.65; font-size: 13px; margin: 0 0 16px; }
+    .detail-section { border-top: 1px solid #e4e9f0; padding-top: 13px; margin-top: 13px; }
+    .detail-section h4 { margin: 0 0 8px; font-size: 12px; color: #3a4860; }
+    .detail-section ul { margin: 0; padding-left: 17px; color: #536178; font-size: 12px; line-height: 1.65; }
+    .code-ref { display: block; padding: 8px 9px; background: #f3f6fa; border: 1px solid #dfe5ed; border-radius: 5px; color: #315b9b; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; margin-bottom: 6px; }
+    .framework-card { background: #f7f9fc; border: 1px solid var(--line); padding: 10px; border-radius: 6px; color: #4d5b72; font-size: 12px; line-height: 1.6; }
+    .empty-detail { color: var(--muted); font-size: 13px; line-height: 1.7; padding-top: 20px; }
+    .search-hit .node-bg { stroke: #d92525 !important; stroke-width: 5 !important; }
+    @media (max-width: 1050px) {
+      .layout { grid-template-columns: 210px minmax(0, 1fr); }
+      aside { position: fixed; z-index: 10; right: 12px; top: 82px; bottom: 12px; width: 330px; box-shadow: 0 8px 32px rgba(24, 40, 66, .2); display: none; }
+      aside.open { display: block; }
+    }
+    @media (max-width: 720px) {
+      .app { grid-template-rows: 112px minmax(0, 1fr); }
+      header { flex-wrap: wrap; padding: 10px 12px; gap: 8px; }
+      .brand { min-width: 0; flex: 1; }
+      .brand p { display: none; }
+      .search { order: 3; max-width: none; width: 100%; }
+      .layout { grid-template-columns: 1fr; grid-template-rows: 116px minmax(0, 1fr); }
+      nav { border-right: 0; border-bottom: 1px solid var(--line); display: flex; overflow-x: auto; padding: 8px; }
+      .nav-title, .nav-desc { display: none; }
+      .nav-item { min-width: 145px; margin: 0 5px 0 0; grid-template-columns: 24px 1fr; align-items: center; }
+      .view-head p { display: none; }
+      .legend { overflow-x: auto; }
+      .toolbar .zoom-label { display: none; }
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">
+      <h1>Agent 系统架构与完整链路图谱</h1>
+      <p>客服项目全链路 + 可复用大型 Agent 工程框架</p>
+    </div>
+    <div class="search">
+      <input id="searchInput" type="search" placeholder="搜索节点，例如 Planner、MCP、记忆、鉴权">
+      <span>⌕</span>
+    </div>
+    <div class="toolbar">
+      <button class="icon-btn" id="zoomOut" title="缩小">−</button>
+      <span class="zoom-label" id="zoomLabel">100%</span>
+      <button class="icon-btn" id="zoomIn" title="放大">＋</button>
+      <button class="icon-btn" id="fitView" title="适应窗口">□</button>
+      <button class="icon-btn" id="resetView" title="重置视图">↺</button>
+    </div>
+  </header>
+  <div class="layout">
+    <nav id="nav"></nav>
+    <main>
+      <div class="view-head">
+        <h2 id="viewTitle"></h2>
+        <p id="viewDescription"></p>
+      </div>
+      <div class="canvas-wrap" id="canvasWrap">
+        <svg id="canvas" role="img" aria-label="Agent 系统架构图">
+          <defs>
+            <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+              <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#dce3ec" stroke-width="1"/>
+            </pattern>
+            <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,8 L11,4 z" fill="#8190a8"/>
+            </marker>
+          </defs>
+          <rect class="grid-pattern" width="100%" height="100%" fill="url(#grid)"/>
+          <g id="viewport"></g>
+        </svg>
+      </div>
+      <div class="legend">
+        <span class="legend-item"><span class="swatch" style="background:#2463d4"></span>编排与运行时</span>
+        <span class="legend-item"><span class="swatch" style="background:#2f855a"></span>知识与模型</span>
+        <span class="legend-item"><span class="swatch" style="background:#b15c00"></span>工具与业务动作</span>
+        <span class="legend-item"><span class="swatch" style="background:#c13c36"></span>安全与人工确认</span>
+        <span class="legend-item"><span class="swatch" style="background:#11788a"></span>数据与记忆</span>
+        <span class="legend-item"><span class="swatch" style="background:#526077"></span>平台治理</span>
+      </div>
+    </main>
+    <aside id="detailPanel">
+      <div id="detailContent" class="empty-detail">点击图中的任意节点，查看职责、输入输出、关键约束、代码位置，以及迁移到其他 Agent 项目时可复用的设计原则。</div>
+    </aside>
+  </div>
+</div>
+<script>
+  const C = {
+    blue: "blue", green: "green", amber: "amber", red: "red", cyan: "cyan", gray: "gray"
+  };
+
+  function node(id, x, y, w, h, color, title, lines, code, detail = {}) {
+    return { id, x, y, w, h, color, title, lines, code, detail };
+  }
+
+  function edge(from, to, label = "", options = {}) {
+    return { from, to, label, ...options };
+  }
+
+  const common = {
+    identity: {
+      summary: "从认证上下文建立可信身份，后续所有租户、用户、坐席和服务身份都以它为准。",
+      input: ["Bearer Token 或服务凭证", "请求来源、设备和租户域"],
+      output: ["CurrentPrincipal", "tenant_id / subject / roles / service_identity"],
+      guard: ["不相信请求体中的 tenant_id/user_id", "客户、坐席、运营、内部服务使用独立权限边界", "敏感接口记录审计事件"],
+      reusable: "任何多租户 Agent 都应先建立可信主体，再让模型参与业务判断。身份不是 Prompt 参数，而是后端运行时上下文。"
+    },
+    graphState: {
+      summary: "保存一次 Agent thread 可恢复的业务状态，只包含可序列化数据。",
+      input: ["请求 DTO", "节点增量更新", "HIL 恢复决策"],
+      output: ["问题改写、知识、计划、工具结果、确认状态、最终答案"],
+      guard: ["不保存 Session、HTTP Client 等进程对象", "State 与 Runtime Context 分离", "字段必须可被 Checkpointer 持久化"],
+      reusable: "State 是业务进度快照，Context 是本次运行依赖。把两者分开，Agent 才能跨进程恢复。"
+    },
+    checkpoint: {
+      summary: "在节点边界保存 Graph State，使长任务、人工确认和服务重启后可以继续。",
+      input: ["thread_id", "节点执行后的 State"],
+      output: ["可恢复 checkpoint", "历史状态版本"],
+      guard: ["生产使用持久化存储", "thread_id 与 conversation_id 分工明确", "设置清理与保留周期"],
+      reusable: "需要等待、人机协同或长时间运行的 Agent，应把恢复能力作为运行时基础，而不是业务补丁。"
+    },
+    mcp: {
+      summary: "通过标准协议发现并调用独立部署的业务能力，主 Agent 不直接耦合业务系统实现。",
+      input: ["工具名、JSON 参数", "服务身份", "高风险动作 approval token"],
+      output: ["结构化工具结果", "远端错误和审计信息"],
+      guard: ["Streamable HTTP 用于独立部署", "MCP Server 再次校验租户和用户", "工具协议与治理元数据分离"],
+      reusable: "MCP 解决工具互操作与边界标准化，不替代鉴权、业务校验、幂等和事务。"
+    },
+    rag: {
+      summary: "把稳定、可追溯的企业知识检索后注入模型上下文，不负责查询实时业务状态。",
+      input: ["dense_query / sparse_query", "租户与知识 ACL", "检索策略"],
+      output: ["带来源、版本和得分的 KnowledgeChunk"],
+      guard: ["Dense 与 BM25 使用一致过滤条件", "只把 Top-K 证据放入 Prompt", "无可靠证据时追问、降级或转人工"],
+      reusable: "RAG 的核心不是向量库，而是语料治理、检索融合、证据质量和回答约束组成的闭环。"
+    }
+  };
+
+  const views = [
+    {
+      id: "architecture", name: "全局分层架构", desc: "从渠道、接入、编排、智能能力到数据治理的完整系统边界", size: [2440, 1760],
+      sections: [
+        [40, 40, 2360, 190, "1. 渠道与体验层", "面向用户、坐席和运营人员的交互入口"],
+        [40, 260, 2360, 210, "2. API 接入与安全边界", "先确定可信身份，再进入 Agent"],
+        [40, 500, 2360, 250, "3. Agent 应用与 LangGraph 编排", "请求级依赖、状态机、计划、恢复"],
+        [40, 780, 2360, 260, "4. 智能能力与业务能力", "LLM、RAG、工具、MCP、人工服务"],
+        [40, 1070, 2360, 250, "5. 数据与记忆层", "业务事实、知识索引、缓存、Checkpoint"],
+        [40, 1350, 2360, 350, "6. 横切治理与交付", "安全、成本、观测、评测、发布和容灾"],
+      ],
+      nodes: [
+        node("web", 100, 100, 270, 90, C.gray, "Web / App 客户端", ["聊天、确认、恢复", "引用证据与状态展示"], "frontend / API contract", {summary:"客户交互入口。前端负责展示状态和采集确认，不承担 Agent 决策。", input:["用户问题、会话 ID、Graph thread ID"], output:["ChatResponse、SSE、确认操作"], guard:["显示请求状态与失败原因", "网络重连后使用 thread_id 恢复"], reusable:"前端只驱动显式交互；业务授权和执行规则必须留在后端。"}),
+        node("agentDesk", 470, 100, 270, 90, C.gray, "人工坐席工作台", ["队列、接入、回复", "结论确认与 Bot 恢复"], "api/routes_human_support.py"),
+        node("ops", 840, 100, 270, 90, C.gray, "运营与知识后台", ["知识发布、质量评测", "成本、Trace、告警"], "api/routes_ops.py"),
+        node("channels", 1210, 100, 350, 90, C.gray, "外部渠道适配", ["企业 IM / 小程序 / 呼叫中心", "统一 Conversation 协议"], "channel adapters"),
+        node("admin", 1660, 100, 300, 90, C.gray, "管理员与平台配置", ["租户、角色、模型策略", "密钥和预算配置"], "admin plane"),
+
+        node("gateway", 100, 330, 280, 95, C.blue, "API Gateway / WAF", ["TLS、限流、请求大小", "路由与基础防护"], "deployment gateway"),
+        node("fastapi", 480, 330, 280, 95, C.blue, "FastAPI 应用", ["Pydantic 校验", "依赖注入、异常映射"], "main.py / api/*"),
+        node("auth", 860, 330, 300, 95, C.red, "认证与 CurrentPrincipal", ["JWT / SSO / 服务身份", "租户与角色边界"], "core/security.py", common.identity),
+        node("audit", 1260, 330, 280, 95, C.red, "权限与审计", ["RBAC / ABAC", "敏感字段脱敏"], "security / audit"),
+        node("requestCtx", 1640, 330, 290, 95, C.gray, "请求上下文", ["request_id / trace_id", "tenant / user / roles"], "core/middleware.py"),
+
+        node("container", 100, 590, 300, 105, C.blue, "ApplicationContainer", ["应用级 Client / Runtime", "请求级 Agent / Session"], "services/container.py"),
+        node("agent", 500, 590, 300, 105, C.blue, "CustomerServiceAgent", ["统一入口 answer/stream", "调用 Graph Runtime"], "services/customer_service_agent.py"),
+        node("runtime", 900, 590, 300, 105, C.blue, "Graph Runtime", ["invoke / resume / state", "thread config + durability"], "workflows/runtime.py", common.checkpoint),
+        node("graph", 1300, 590, 300, 105, C.blue, "LangGraph StateGraph", ["节点、边、RetryPolicy", "interrupt / Command"], "workflows/customer_service_graph.py", common.graphState),
+        node("nodes", 1700, 590, 320, 105, C.blue, "Graph Nodes", ["prepare → rewrite → retrieve", "decide → act → persist"], "workflows/nodes.py"),
+
+        node("llm", 100, 870, 280, 105, C.green, "LLM Gateway", ["模型路由、结构化输出", "Token 统计、超时、降级"], "infrastructure/llm/*"),
+        node("rewrite", 470, 870, 280, 105, C.green, "Query Rewrite", ["指代消解、实体保护", "Dense / Sparse 查询"], "services/question_rewrite_service.py"),
+        node("retrieval", 840, 870, 300, 105, C.green, "Hybrid RAG", ["Dense + BM25 + RRF", "Rerank + 证据门禁"], "services/rag_service.py", common.rag),
+        node("planner", 1230, 870, 300, 105, C.blue, "Planner / DAG Executor", ["结构化计划、依赖校验", "就绪波次、有限并发"], "services/planner_service.py"),
+        node("tools", 1620, 870, 280, 105, C.amber, "Tool Registry", ["Schema、Handler、风险", "白名单与超时"], "services/tool_registry.py"),
+        node("mcp", 1990, 870, 300, 105, C.amber, "MCP / Business Systems", ["工具发现与调用", "订单、售后、会员、搜索"], "infrastructure/mcp/*", common.mcp),
+
+        node("mysql", 100, 1160, 270, 105, C.cyan, "业务数据库", ["会话、消息、工单", "PendingAction、用量"], "infrastructure/db/*"),
+        node("redis", 450, 1160, 270, 105, C.cyan, "Redis", ["语义缓存、短期状态", "分布式锁与幂等"], "infrastructure/cache/*"),
+        node("vector", 800, 1160, 300, 105, C.cyan, "Qdrant / Milvus", ["Dense 向量与 Payload", "租户和 ACL 过滤"], "infrastructure/vector_store/*"),
+        node("search", 1190, 1160, 280, 105, C.cyan, "OpenSearch", ["BM25、规则编号", "产品型号与精确词"], "infrastructure/lexical/*"),
+        node("checkpointer", 1560, 1160, 300, 105, C.cyan, "Postgres Checkpointer", ["Graph State 版本", "HIL 挂起与恢复"], "workflows/runtime.py", common.checkpoint),
+        node("knowledge", 1950, 1160, 300, 105, C.cyan, "Knowledge Corpus", ["版本、ACL、有效期", "引用、冲突、发布批次"], "knowledge_base / ingest"),
+
+        node("security", 90, 1450, 270, 120, C.red, "安全治理", ["Prompt 注入防护、最小权限", "审批、审计、密钥轮换"], "security plane"),
+        node("cost", 430, 1450, 270, 120, C.gray, "成本治理", ["租户等级、Token 预算", "模型/RAG/历史窗口降级"], "services/cost_governance_service.py"),
+        node("observe", 770, 1450, 300, 120, C.gray, "可观测性", ["OTel Trace + Metrics + Logs", "LangSmith / Prometheus / Grafana"], "observability/*"),
+        node("eval", 1140, 1450, 290, 120, C.gray, "评测与质量门禁", ["RAG、Rewrite、Plan、Answer", "离线集 + 在线反馈"], "scripts/evaluate_* / tests"),
+        node("resilience", 1500, 1450, 300, 120, C.gray, "稳定性与一致性", ["超时、重试、熔断、隔离", "幂等、Outbox、补偿"], "runtime policies"),
+        node("delivery", 1870, 1450, 300, 120, C.gray, "交付与运维", ["CI、镜像、迁移、发布", "备份、恢复、索引重建"], "Docker / CI / deployment"),
+      ],
+      edges: [
+        edge("web","gateway"), edge("agentDesk","gateway"), edge("ops","gateway"), edge("channels","gateway"), edge("admin","gateway"),
+        edge("gateway","fastapi"), edge("fastapi","auth"), edge("auth","requestCtx"), edge("auth","audit"),
+        edge("requestCtx","container"), edge("container","agent"), edge("agent","runtime"), edge("runtime","graph"), edge("graph","nodes"),
+        edge("nodes","llm"), edge("nodes","rewrite"), edge("nodes","retrieval"), edge("nodes","planner"), edge("nodes","tools"), edge("tools","mcp"),
+        edge("nodes","mysql"), edge("nodes","redis"), edge("retrieval","vector"), edge("retrieval","search"), edge("runtime","checkpointer"), edge("retrieval","knowledge"),
+      ]
+    },
+    {
+      id: "runtime", name: "一次请求完整运行链", desc: "从 HTTP 请求进入，到改写、检索、计划、工具、HIL、恢复和持久化", size: [2680, 1920],
+      sections: [
+        [40, 40, 2600, 210, "A. 请求入口", "身份、会话和 Graph thread"],
+        [40, 280, 2600, 280, "B. Prepare 与上下文", "成本、短期记忆、缓存条件、运行轨迹"],
+        [40, 590, 2600, 330, "C. 问题理解与知识检索", "改写、追问、混合召回、质量反馈"],
+        [40, 950, 2600, 360, "D. 决策、计划与工具执行", "简单问题直答，复杂问题 DAG 调度"],
+        [40, 1340, 2600, 300, "E. 高风险动作 HIL", "确认单、Checkpoint、interrupt、resume"],
+        [40, 1670, 2600, 200, "F. 结果收口", "回答、记忆、缓存、用量、Trace 和事务"],
+      ],
+      nodes: [
+        node("request", 100, 105, 250, 90, C.gray, "1. ChatRequest", ["question / conversation_id", "thread_id / metadata"], "domain/schemas.py"),
+        node("principal", 440, 105, 260, 90, C.red, "2. 身份与权限", ["CurrentPrincipal", "tenant / user / roles"], "core/security.py", common.identity),
+        node("route", 790, 105, 250, 90, C.blue, "3. FastAPI Route", ["校验 DTO", "注入 Session + Agent"], "api/routes_chat.py"),
+        node("answer", 1130, 105, 260, 90, C.blue, "4. Agent.answer", ["组装 request_payload", "invoke 或 resume"], "services/customer_service_agent.py"),
+        node("invoke", 1480, 105, 270, 90, C.blue, "5. GraphRuntime.invoke", ["解析 thread_id", "ainvoke + durability"], "workflows/runtime.py"),
+        node("checkpoint", 1840, 105, 280, 90, C.cyan, "6. Checkpointer", ["载入旧 State", "节点边界持久化"], "workflows/runtime.py", common.checkpoint),
+        node("prepare", 2210, 105, 300, 90, C.blue, "7. prepare", ["会话、run、策略、记忆", "可信 ToolContext"], "workflows/nodes.py:prepare"),
+
+        node("conversation", 100, 370, 280, 105, C.cyan, "8. 会话归属", ["查已有或创建", "tenant + user 防越权"], "services/conversation_service.py"),
+        node("run", 470, 370, 280, 105, C.gray, "9. Agent Run", ["run_id / timer", "状态和节点轨迹"], "services/trace_service.py"),
+        node("strategy", 840, 370, 280, 105, C.gray, "10. 成本策略", ["模型、Top-K、历史窗口", "缓存优先与 Rerank"], "services/cost_governance_service.py"),
+        node("memory", 1210, 370, 300, 105, C.cyan, "11. 短期上下文", ["最近原文 + 摘要", "待确认动作 + 可信记忆"], "services/memory_service.py"),
+        node("cacheGate", 1600, 370, 280, 105, C.green, "12. 缓存门禁", ["排除实时和高风险问题", "skip_cache / cache_first"], "workflows/nodes.py"),
+        node("state", 1970, 370, 320, 105, C.blue, "13. 初始 Graph State", ["只保存 JSON 数据", "依赖放 Runtime Context"], "workflows/state.py", common.graphState),
+
+        node("rewriteGate", 100, 690, 280, 105, C.green, "14. Rewrite Gate", ["指代、省略、低质量反馈", "简单完整问题零 Token 跳过"], "question_rewrite_service.py"),
+        node("rewriteLLM", 470, 690, 300, 105, C.green, "15. 结构化问题改写", ["standalone / dense / sparse", "intent / entities / confidence"], "question_rewrite_service.py"),
+        node("rewriteValidate", 860, 690, 300, 105, C.red, "16. Rewrite Validator", ["禁止发明订单号/金额/日期", "低置信度规则降级"], "question_rewrite_service.py"),
+        node("clarify", 1250, 625, 280, 105, C.red, "17A. clarification", ["关键实体缺失", "向用户追问后 persist"], "workflows/nodes.py:clarify"),
+        node("retrieve", 1250, 790, 280, 105, C.green, "17B. retrieve", ["Dense / BM25 并发", "RRF + 可选 Rerank"], "workflows/nodes.py:retrieve", common.rag),
+        node("quality", 1620, 790, 300, 105, C.green, "18. Retrieval Quality", ["数量、得分、证据有效性", "区分空结果与服务失败"], "workflows/nodes.py:evaluate_retrieval"),
+        node("retryRewrite", 2010, 790, 290, 105, C.green, "19. 有界反馈改写", ["最多一次", "禁止 rewrite-retrieve 死循环"], "workflows/nodes.py"),
+        node("cacheLookup", 2350, 690, 240, 105, C.green, "20. 语义缓存", ["Embedding + cosine", "命中直接收口"], "redis_semantic_cache.py"),
+
+        node("decide", 100, 1050, 290, 110, C.blue, "21. decide", ["Plan Gate", "LLM 直答或 tool_calls"], "workflows/nodes.py:decide"),
+        node("planner", 480, 1000, 310, 120, C.blue, "22A. Structured Planner", ["submit_plan 工具输出", "Schema 校验 + 一次修复"], "services/planner_service.py"),
+        node("dag", 880, 1000, 310, 120, C.blue, "23A. DAG 校验与就绪波次", ["依赖、环、重复步骤", "ready steps + skipped"], "services/planner_service.py"),
+        node("parallel", 1280, 1000, 310, 120, C.blue, "24A. 有限并发", ["无依赖只读远程工具", "写操作与共享 Session 串行"], "workflows/nodes.py:execute_plan_step"),
+        node("direct", 480, 1160, 310, 110, C.green, "22B. LLM 决策", ["直接回答", "或返回 tool_calls"], "infrastructure/llm/*"),
+        node("registry", 1280, 1160, 310, 110, C.amber, "23B. Tool Registry", ["name → ToolSpec → Handler", "参数解析、超时、白名单"], "services/tool_registry.py"),
+        node("gateway", 1680, 1080, 310, 110, C.amber, "25. BusinessGateway", ["本地 Repository fallback", "优先远程 MCP"], "services/business_gateway.py"),
+        node("readTool", 2080, 1010, 300, 110, C.amber, "26A. 只读工具", ["订单、物流、会员、搜索", "返回 observation"], "tools/*"),
+        node("writeTool", 2080, 1170, 300, 110, C.red, "26B. 副作用工具", ["退款、补偿、换货、转人工", "必须进入确认链"], "tools/*"),
+
+        node("pending", 100, 1440, 310, 115, C.red, "27. PendingAction", ["参数、风险、幂等键", "confirmation_id + thread_id"], "services/confirmation_service.py"),
+        node("commit", 500, 1440, 300, 115, C.red, "28. 提交确认状态", ["先落库再 interrupt", "防止前端查不到确认单"], "workflows/nodes.py"),
+        node("interrupt", 890, 1440, 300, 115, C.red, "29. LangGraph interrupt", ["返回确认 payload", "挂起并保存 checkpoint"], "workflows/nodes.py", common.checkpoint),
+        node("userDecision", 1280, 1440, 300, 115, C.red, "30. 用户确认/拒绝", ["前端确认接口", "审批时效与重复点击"], "api/routes_confirmations.py"),
+        node("resume", 1670, 1440, 300, 115, C.blue, "31. Command(resume)", ["同一 thread_id", "回到 await_confirmation"], "workflows/runtime.py"),
+        node("approval", 2060, 1440, 300, 115, C.red, "32. Approval Token", ["绑定动作、租户、用户、工具", "短时效 + jti + 防重放"], "infrastructure/mcp/approval.py"),
+        node("mcpWrite", 2450, 1440, 150, 115, C.amber, "33. MCP 写入", ["幂等执行", "结果回传"], "mcp server"),
+
+        node("finalize", 100, 1730, 290, 95, C.green, "34. finalize", ["综合知识和 observations", "生成最终答复"], "workflows/nodes.py:finalize"),
+        node("persist", 480, 1730, 290, 95, C.blue, "35. persist", ["保存 user + assistant", "摘要与长期记忆准入"], "workflows/nodes.py:persist"),
+        node("cacheUpdate", 860, 1730, 290, 95, C.cyan, "36. 缓存写入", ["非实时、非高风险", "记录知识版本与引用"], "redis_semantic_cache.py"),
+        node("usage", 1240, 1730, 290, 95, C.gray, "37. 用量与成本", ["prompt/completion tokens", "租户日预算"], "cost_governance_service.py"),
+        node("trace", 1620, 1730, 290, 95, C.gray, "38. Trace / Metrics", ["节点、LLM、RAG、MCP", "错误、延迟、质量"], "observability/*"),
+        node("response", 2000, 1730, 300, 95, C.gray, "39. ChatResponse", ["answer / trace / citations", "thread / confirmation / plan"], "domain/schemas.py"),
+      ],
+      edges: [
+        edge("request","principal"), edge("principal","route"), edge("route","answer"), edge("answer","invoke"), edge("invoke","checkpoint"), edge("checkpoint","prepare"),
+        edge("prepare","conversation"), edge("conversation","run"), edge("run","strategy"), edge("strategy","memory"), edge("memory","cacheGate"), edge("cacheGate","state"),
+        edge("state","rewriteGate"), edge("rewriteGate","rewriteLLM","需要改写"), edge("rewriteGate","retrieve","无需改写"), edge("rewriteLLM","rewriteValidate"), edge("rewriteValidate","clarify","信息不足"), edge("rewriteValidate","retrieve","校验通过"),
+        edge("retrieve","quality"), edge("quality","retryRewrite","低质量且未重试"), edge("retryRewrite","rewriteLLM"), edge("quality","cacheLookup","质量正常"), edge("cacheLookup","decide","未命中"),
+        edge("decide","planner","复杂多意图"), edge("planner","dag"), edge("dag","parallel"), edge("decide","direct","简单请求"), edge("direct","registry","tool_calls"), edge("parallel","gateway"), edge("registry","gateway"), edge("gateway","readTool"), edge("gateway","writeTool"),
+        edge("readTool","finalize"), edge("writeTool","pending"), edge("pending","commit"), edge("commit","interrupt"), edge("interrupt","userDecision"), edge("userDecision","resume"), edge("resume","approval"), edge("approval","mcpWrite"), edge("mcpWrite","finalize"),
+        edge("finalize","persist"), edge("persist","cacheUpdate"), edge("cacheUpdate","usage"), edge("usage","trace"), edge("trace","response"), edge("clarify","persist"), edge("cacheLookup","response","命中缓存")
+      ]
+    },
+    {
+      id: "understand", name: "问题理解与任务规划", desc: "语义改写、实体保护、Planner 结构化输出、DAG 校验与受限执行", size: [2420, 1660],
+      sections: [
+        [40, 40, 2340, 300, "1. 可信输入域", "改写和规划只能使用可证明的上下文"],
+        [40, 370, 2340, 360, "2. Query Rewrite", "把依赖上下文的追问变成独立、可检索的问题"],
+        [40, 760, 2340, 360, "3. Structured Planner", "只为复杂请求付出规划 Token"],
+        [40, 1150, 2340, 450, "4. DAG 调度与执行约束", "并行只是一种受控优化，不改变安全边界"],
+      ],
+      nodes: [
+        node("original", 100, 135, 280, 110, C.gray, "原始用户问题", ["始终保留", "回答时防语义漂移"], "ChatRequest.question"),
+        node("recent", 470, 135, 280, 110, C.cyan, "最近消息原文", ["有限轮数", "user / assistant 分角色"], "MemoryService"),
+        node("summary", 840, 135, 280, 110, C.cyan, "会话摘要", ["只覆盖滑出窗口的旧消息", "不是业务事实"], "ConversationSummary"),
+        node("verified", 1210, 135, 300, 110, C.cyan, "已验证实体与记忆", ["工具事实 / 人工结论", "证据、置信度、有效期"], "CustomerMemory"),
+        node("pending", 1600, 135, 300, 110, C.red, "待确认动作", ["避免重复规划", "识别恢复中的任务"], "PendingAction"),
+        node("scope", 1990, 135, 300, 110, C.red, "上下文最小化", ["只取当前任务所需字段", "脱敏和权限过滤"], "context policy"),
+
+        node("gate", 100, 490, 300, 115, C.green, "Rewrite Gate", ["指代、省略、短问句", "检索反馈、错别字、多实体"], "QuestionRewriteService.should_rewrite"),
+        node("clarify", 490, 490, 300, 115, C.red, "缺失字段追问", ["可信上下文无法补全", "禁止模型猜订单/金额/日期"], "QueryRewriteResult.needs_clarification"),
+        node("rewriter", 880, 490, 300, 115, C.green, "结构化 Rewriter", ["强制 submit_query_rewrite", "temperature=0"], "QuestionRewriteService.resolve"),
+        node("validator", 1270, 490, 300, 115, C.red, "Rewrite Validator", ["实体来源校验", "Schema、长度、置信度"], "_validate_no_invented_business_ids"),
+        node("queries", 1660, 490, 300, 115, C.green, "三类查询输出", ["standalone_question", "dense_query / sparse_query"], "QueryRewriteResult"),
+        node("feedback", 2050, 490, 260, 115, C.green, "检索反馈重写", ["低质量最多一次", "硬上限防循环"], "evaluate_retrieval"),
+
+        node("planGate", 100, 875, 300, 115, C.blue, "Plan Gate", ["多意图、条件、多动作", "简单问题跳过 Planner"], "PlannerService.needs_plan"),
+        node("toolContracts", 490, 875, 300, 115, C.amber, "受控工具目录", ["name / description / schema", "风险、只读、确认、超时"], "ToolRegistry"),
+        node("plannerLLM", 880, 875, 300, 115, C.blue, "Planner LLM", ["只调用 submit_plan", "不直接回答用户"], "PlannerService.build_plan"),
+        node("schema", 1270, 875, 300, 115, C.red, "计划治理校验", ["Pydantic + JSON Schema", "白名单、依赖、重复、上限"], "PlannerDraft / _normalize_llm_plan"),
+        node("repair", 1660, 875, 300, 115, C.blue, "一次修复", ["反馈具体校验错误", "仍失败则丢弃"], "PlannerService.build_plan"),
+        node("fallback", 2050, 875, 260, 115, C.gray, "规则计划/追问", ["模型不可用兜底", "不执行不可信计划"], "build_rule_based_plan"),
+
+        node("dag", 100, 1280, 300, 120, C.blue, "DAG 构建", ["唯一 step_id", "环、悬空、不可达检测"], "AgentPlan / PlanStep"),
+        node("ready", 490, 1280, 300, 120, C.blue, "Ready Steps", ["依赖全部成功才能就绪", "失败依赖标记 skipped"], "execute_plan_step"),
+        node("wave", 880, 1280, 300, 120, C.blue, "执行波次", ["最大并发数", "每波次 checkpoint"], "plan_max_parallel_steps"),
+        node("parallel", 1270, 1210, 300, 120, C.green, "并行分支", ["无依赖 + read_only", "parallel_safe + 远程 MCP"], "_execute_parallel_plan_tool"),
+        node("serial", 1270, 1400, 300, 120, C.amber, "串行分支", ["共享 AsyncSession", "写工具 / 高风险工具"], "execute_plan_step"),
+        node("budget", 1660, 1280, 300, 120, C.red, "执行预算", ["max_steps / max_tool_calls", "timeout / retry / recursion_limit"], "Settings + ToolSpec"),
+        node("observe", 2050, 1280, 260, 120, C.gray, "Observation", ["状态、耗时、错误、结果", "供后续步骤与最终总结"], "plan_observations"),
+      ],
+      edges: [
+        edge("original","scope"), edge("recent","scope"), edge("summary","scope"), edge("verified","scope"), edge("pending","scope"),
+        edge("scope","gate"), edge("gate","clarify","无法可信补全"), edge("gate","rewriter","需要改写"), edge("gate","queries","无需改写"), edge("rewriter","validator"), edge("validator","queries"), edge("queries","feedback"), edge("feedback","rewriter","质量低"),
+        edge("queries","planGate"), edge("planGate","plannerLLM","复杂请求"), edge("toolContracts","plannerLLM"), edge("plannerLLM","schema"), edge("schema","repair","不合法"), edge("repair","schema"), edge("repair","fallback","仍失败"), edge("schema","dag","合法"),
+        edge("dag","ready"), edge("ready","wave"), edge("wave","parallel"), edge("wave","serial"), edge("parallel","budget"), edge("serial","budget"), edge("budget","observe")
+      ]
+    },
+    {
+      id: "rag", name: "RAG 与知识工程", desc: "离线知识生命周期和在线混合检索组成同一个可验证闭环", size: [2520, 1880],
+      sections: [
+        [40, 40, 2440, 720, "A. 离线知识生产链", "文档不是直接切块入库，而是经过版本、质量、ACL 和发布治理"],
+        [40, 790, 2440, 650, "B. 在线检索链", "动态路由、双路召回、融合重排和证据门禁"],
+        [40, 1470, 2440, 350, "C. 评测、引用与失效", "知识更新必须同时影响索引、缓存和回答证据"],
+      ],
+      nodes: [
+        node("sources", 90, 130, 280, 110, C.gray, "多格式知识源", ["Markdown / PDF / DOCX / HTML", "表格 / OCR / FAQ / API"], "knowledge ingestion adapters"),
+        node("normalize", 450, 130, 280, 110, C.green, "统一文档模型", ["document_id / version", "标题路径、页码、来源链接"], "knowledge document model"),
+        node("lifecycle", 810, 130, 300, 110, C.red, "生命周期校验", ["新增、修改、删除、过期", "content_hash / 生效时间"], "ingestion pipeline"),
+        node("acl", 1190, 130, 300, 110, C.red, "知识 ACL", ["tenant / audience / channel", "region / product_line"], "metadata filters"),
+        node("conflict", 1570, 130, 300, 110, C.red, "冲突与质量检测", ["重复、矛盾、过期", "缺失日期进入隔离队列"], "corpus governance"),
+        node("publish", 1950, 130, 300, 110, C.blue, "发布批次", ["版本门禁、失败重试", "回滚和审计记录"], "knowledge release"),
+
+        node("structure", 90, 390, 300, 115, C.green, "结构感知解析", ["标题、段落、FAQ、表格", "代码块和规则编号保护"], "markdown_chunker.py"),
+        node("tokenChunk", 480, 390, 300, 115, C.green, "Token 感知切块", ["目标长度 + overlap", "语义原子不跨块"], "knowledge_ingestion/*"),
+        node("metadata", 870, 390, 300, 115, C.cyan, "Chunk Metadata", ["chunk_id / checksum / heading", "version / ACL / effective_at"], "KnowledgeChunk"),
+        node("embed", 1260, 390, 300, 115, C.green, "Embedding", ["批量向量化", "维度和模型版本固定"], "infrastructure/embeddings/*"),
+        node("denseIndex", 1650, 350, 280, 115, C.cyan, "Dense Index", ["Qdrant / Milvus", "vector + payload"], "vector_store/*"),
+        node("bm25Index", 1650, 535, 280, 115, C.cyan, "Lexical Index", ["OpenSearch BM25", "文本 + 相同 ACL"], "lexical/*"),
+        node("cleanup", 2020, 440, 300, 115, C.red, "旧版本清理", ["删除残留 chunks", "向量/BM25/缓存同步失效"], "index maintenance"),
+
+        node("query", 90, 900, 280, 110, C.gray, "用户检索意图", ["原问题 + 改写结果", "verified entities"], "QueryRewriteResult"),
+        node("router", 450, 900, 290, 110, C.blue, "动态检索路由", ["实时事实 → Tool", "政策知识 → RAG"], "RagService.should_skip_retrieval"),
+        node("strategy", 820, 900, 300, 110, C.blue, "检索策略", ["query type / tenant tier", "candidate_k / weights / top_k"], "CostStrategy + retrieval policy"),
+        node("dense", 1210, 840, 300, 115, C.green, "Dense Retrieval", ["语义相似召回", "tenant + ACL filter"], "vector_store.search"),
+        node("bm25", 1210, 1040, 300, 115, C.green, "BM25 Retrieval", ["精确词、编号、型号", "tenant + ACL filter"], "lexical.search"),
+        node("rrf", 1600, 900, 300, 115, C.green, "RRF 融合", ["按排名倒数融合", "chunk_id 去重、记录来源"], "RagService._rrf_fuse"),
+        node("rerank", 1990, 900, 300, 115, C.green, "可选 Reranker", ["候选重排", "失败降级，不做单点"], "infrastructure/rerank/*"),
+        node("quality", 1990, 1090, 300, 115, C.red, "证据质量门禁", ["数量、得分、时效、冲突", "无可靠证据不承诺"], "evaluate_retrieval"),
+        node("prompt", 1600, 1160, 300, 115, C.green, "Top-K Context", ["只注入最相关证据", "保留来源和版本"], "prompts/customer_service.py"),
+        node("answer", 820, 1160, 300, 115, C.green, "Grounded Answer", ["事实绑定引用", "实时数据强制 Tool"], "finalize"),
+
+        node("evalset", 90, 1570, 300, 115, C.gray, "离线评测集", ["精确词、语义、无答案", "租户隔离、时效、冲突"], "evaluation_queries.json"),
+        node("metrics", 480, 1570, 300, 115, C.gray, "检索指标", ["Hit@K / MRR / nDCG", "Recall / latency / cost"], "evaluate_retrieval.py"),
+        node("gate", 870, 1570, 300, 115, C.red, "发布质量门禁", ["低于基线阻止发布", "线上反馈回灌"], "CI knowledge gate"),
+        node("citation", 1260, 1570, 300, 115, C.green, "答案证据引用", ["chunk / source / heading", "version / URL / page"], "ChatResponse citations"),
+        node("cache", 1650, 1570, 300, 115, C.cyan, "语义缓存版本", ["corpus_version + chunk_ids", "政策更新主动失效"], "redis_semantic_cache.py"),
+        node("observe", 2040, 1570, 300, 115, C.gray, "检索可观测", ["双路耗时、交集、排名变化", "空结果与服务失败分开"], "OTel / Metrics"),
+      ],
+      edges: [
+        edge("sources","normalize"), edge("normalize","lifecycle"), edge("lifecycle","acl"), edge("acl","conflict"), edge("conflict","publish"),
+        edge("publish","structure"), edge("structure","tokenChunk"), edge("tokenChunk","metadata"), edge("metadata","embed"), edge("embed","denseIndex"), edge("metadata","bm25Index"), edge("publish","cleanup"),
+        edge("query","router"), edge("router","strategy"), edge("strategy","dense"), edge("strategy","bm25"), edge("dense","rrf"), edge("bm25","rrf"), edge("rrf","rerank"), edge("rerank","quality"), edge("quality","prompt"), edge("prompt","answer"),
+        edge("evalset","metrics"), edge("metrics","gate"), edge("gate","publish"), edge("answer","citation"), edge("citation","cache"), edge("cache","observe"), edge("cleanup","cache")
+      ]
+    },
+    {
+      id: "tools", name: "Tool / MCP / HIL", desc: "模型只能提出动作意图，后端负责校验、授权、执行、审计和恢复", size: [2480, 1780],
+      sections: [
+        [40, 40, 2400, 330, "1. 工具建模与模型决策", "工具说明给模型看，Handler 给后端执行"],
+        [40, 400, 2400, 360, "2. 后端受控执行边界", "工具名映射、参数校验、风险和业务网关"],
+        [40, 790, 2400, 330, "3. MCP 独立服务", "协议标准化不等于安全完成"],
+        [40, 1150, 2400, 560, "4. 高风险动作与跨系统一致性", "确认、恢复、幂等、补偿和审计"],
+      ],
+      nodes: [
+        node("spec", 100, 135, 300, 120, C.amber, "ToolSpec", ["name / description / JSON Schema", "read_only / risk / timeout"], "services/tool_registry.py"),
+        node("definitions", 500, 135, 300, 120, C.amber, "Tool Definitions", ["导出 OpenAI-compatible tools", "不混入用户 question"], "ToolRegistry.definitions"),
+        node("llm", 900, 135, 300, 120, C.green, "LLM Decision", ["直接回答或 tool_calls", "模型不执行真实业务"], "LLMClient.chat"),
+        node("toolCall", 1300, 135, 300, 120, C.amber, "LLMToolCall", ["call_id / function.name", "JSON arguments"], "infrastructure/llm/base.py"),
+        node("planner", 1700, 135, 300, 120, C.blue, "Planner Step", ["tool_name / depends_on", "confirmation / parallel policy"], "domain/planning.py"),
+        node("budget", 2100, 135, 260, 120, C.red, "Action Budget", ["次数、超时、递归上限", "重复动作阻断"], "Settings"),
+
+        node("registry", 100, 515, 300, 120, C.amber, "ToolRegistry.require", ["白名单查找 ToolSpec", "未知工具直接拒绝"], "services/tool_registry.py"),
+        node("args", 500, 515, 300, 120, C.red, "参数治理", ["JSON 解析 + Schema 校验", "服务端补可信身份字段"], "ToolRegistry.execute"),
+        node("risk", 900, 515, 300, 120, C.red, "RiskControl", ["只读 / 写入 / 资金 / 投诉", "决定 HIL 和审计等级"], "risk_control_service.py"),
+        node("handler", 1300, 515, 300, 120, C.amber, "ToolHandler", ["Callable(arguments, context)", "wait_for timeout"], "ToolSpec.handler"),
+        node("gateway", 1700, 515, 300, 120, C.amber, "BusinessGateway", ["业务能力统一端口", "MCP 优先、本地降级"], "business_gateway.py"),
+        node("result", 2100, 515, 260, 120, C.green, "ToolResult", ["结构化 payload", "供 Graph/LLM 二次总结"], "ToolResultView"),
+
+        node("client", 100, 900, 300, 120, C.amber, "MCP Client", ["Streamable HTTP / stdio", "initialize / list_tools / call_tool"], "infrastructure/mcp/client.py", common.mcp),
+        node("discovery", 500, 900, 300, 120, C.amber, "工具发现", ["session.list_tools()", "参数 Schema"], "MCP ClientSession"),
+        node("contract", 900, 900, 300, 120, C.red, "治理元数据", ["read_only / confirmation", "risk / action_type"], "after-sales://tool-contracts"),
+        node("serviceAuth", 1300, 900, 300, 120, C.red, "服务间认证", ["mTLS / OAuth2 / service JWT", "来源、audience、权限"], "MCP transport security"),
+        node("server", 1700, 900, 300, 120, C.amber, "MCP Server", ["再次校验 tenant/user", "独立 Repository 和业务规则"], "mcp_services/*"),
+        node("systems", 2100, 900, 260, 120, C.cyan, "业务系统", ["订单、退款、会员、工单", "真实事实来源"], "internal services"),
+
+        node("sideEffect", 100, 1260, 300, 120, C.red, "副作用动作", ["退款、补偿、换货、转人工", "requires_confirmation"], "ToolSpec"),
+        node("pending", 500, 1260, 300, 120, C.red, "PendingAction", ["确认文案、参数、风险", "稳定幂等键"], "ConfirmationService"),
+        node("interrupt", 900, 1260, 300, 120, C.red, "interrupt + Checkpoint", ["提交后挂起", "不占用 HTTP/DB 连接"], "LangGraph HIL", common.checkpoint),
+        node("approve", 1300, 1210, 300, 120, C.red, "批准", ["检查归属、状态、过期", "生成单动作 approval token"], "routes_confirmations.py"),
+        node("reject", 1300, 1400, 300, 120, C.red, "拒绝", ["不执行工具", "恢复 Graph 输出取消结果"], "routes_confirmations.py"),
+        node("token", 1700, 1210, 300, 120, C.red, "Approval Claims", ["tenant/sub/tool/confirmation/thread", "exp / jti / issuer"], "mcp/approval.py"),
+        node("idempotency", 1700, 1400, 300, 120, C.red, "幂等与防重放", ["同一动作只产生一个结果", "重复请求返回旧结果"], "PendingAction + MCP ticket"),
+        node("outbox", 2100, 1210, 260, 120, C.gray, "Outbox / 补偿", ["跨系统局部成功处理", "重放、对账、人工修复"], "consistency worker"),
+        node("audit", 2100, 1400, 260, 120, C.gray, "操作审计", ["谁、何时、为何、结果", "敏感参数脱敏"], "audit log"),
+      ],
+      edges: [
+        edge("spec","definitions"), edge("definitions","llm"), edge("llm","toolCall"), edge("planner","toolCall"), edge("toolCall","budget"),
+        edge("budget","registry"), edge("registry","args"), edge("args","risk"), edge("risk","handler"), edge("handler","gateway"), edge("gateway","result"),
+        edge("gateway","client"), edge("client","discovery"), edge("discovery","contract"), edge("contract","serviceAuth"), edge("serviceAuth","server"), edge("server","systems"),
+        edge("risk","sideEffect","高风险"), edge("sideEffect","pending"), edge("pending","interrupt"), edge("interrupt","approve"), edge("interrupt","reject"), edge("approve","token"), edge("token","server"), edge("approve","idempotency"), edge("idempotency","outbox"), edge("server","audit")
+      ]
+    },
+    {
+      id: "memory", name: "长短期记忆与恢复", desc: "会话历史、摘要、长期事实和 Graph Checkpoint 是四种不同的数据", size: [2360, 1660],
+      sections: [
+        [40, 40, 2280, 270, "1. 原始事实来源", "记忆写入前先判断来源是否可信"],
+        [40, 340, 2280, 430, "2. 短期记忆", "控制上下文长度，保留最近原文和旧消息摘要"],
+        [40, 800, 2280, 500, "3. 长期记忆治理", "只存稳定、必要、可撤销、可追溯的信息"],
+        [40, 1330, 2280, 270, "4. Graph Checkpoint", "保存工作流进度，不等于用户记忆"],
+      ],
+      nodes: [
+        node("user", 100, 115, 280, 110, C.gray, "用户明确表达", ["稳定偏好、授权选择", "可撤回"], "ChatMessage"),
+        node("tool", 470, 115, 280, 110, C.amber, "工具验证事实", ["订单、退款、会员状态", "带证据和时间"], "ToolResult"),
+        node("human", 840, 115, 280, 110, C.red, "人工确认结论", ["处理摘要、恢复 Bot", "责任主体明确"], "HumanHandoffSession"),
+        node("risk", 1210, 115, 280, 110, C.red, "风控结果", ["风险标签、有效期", "最小必要使用"], "RiskControlService"),
+        node("model", 1580, 115, 280, 110, C.green, "模型推测", ["只做临时上下文", "不能直接成为长期事实"], "LLM response"),
+        node("sensitive", 1950, 115, 280, 110, C.red, "敏感凭据", ["密码、验证码、支付信息", "禁止自动记忆"], "privacy filter"),
+
+        node("messages", 100, 460, 300, 120, C.cyan, "消息持久化", ["user / assistant 分开保存", "会话归属隔离"], "MessageRepository"),
+        node("window", 500, 460, 300, 120, C.cyan, "最近原文窗口", ["按成本策略取 N 轮", "保留细节和说话角色"], "MemoryService"),
+        node("summaryGate", 900, 460, 300, 120, C.blue, "摘要阈值", ["只处理即将滑出窗口的旧消息", "记录覆盖起止 message_id"], "maybe_update_summary"),
+        node("summary", 1300, 460, 300, 120, C.cyan, "上下文摘要", ["压缩主题、决定和未决项", "明确不是已验证业务事实"], "ConversationSummary"),
+        node("context", 1700, 460, 360, 120, C.blue, "ShortTermContext", ["recent + summary + pending", "按任务最小化注入"], "domain/memory.py"),
+
+        node("candidate", 100, 920, 300, 120, C.cyan, "记忆候选", ["type / key / value / source", "evidence / confidence / sensitivity"], "MemoryWriteCommand"),
+        node("writeGate", 500, 920, 300, 120, C.red, "Memory Write Gate", ["来源白名单、置信度", "敏感检测、业务必要性"], "LongTermMemoryService"),
+        node("verify", 900, 850, 300, 120, C.red, "验证与证据", ["verified_status", "evidence_id / source timestamp"], "CustomerMemory"),
+        node("conflict", 900, 1050, 300, 120, C.red, "冲突与合并", ["新旧值、优先级、时间", "不确定时等待确认"], "memory policy"),
+        node("store", 1300, 920, 300, 120, C.cyan, "长期记忆 Store", ["tenant + user + namespace", "expires_at / version"], "CustomerMemoryRepository"),
+        node("retrieve", 1700, 850, 300, 120, C.green, "任务相关召回", ["Planner / Rewriter 最小读取", "权限与敏感等级过滤"], "MemoryService"),
+        node("manage", 1700, 1050, 300, 120, C.gray, "用户管理", ["查看、修改、删除", "禁用记忆与撤回偏好"], "memory API"),
+
+        node("graphState", 100, 1405, 300, 115, C.blue, "Graph State", ["计划、工具、确认、答案", "只保存 JSON-like 数据"], "workflows/state.py", common.graphState),
+        node("thread", 500, 1405, 300, 115, C.blue, "thread_id", ["一次可恢复工作流身份", "可跨多次 HTTP 请求"], "GraphRuntime"),
+        node("checkpoint", 900, 1405, 300, 115, C.cyan, "Checkpoint Store", ["Postgres / MemorySaver", "节点版本和恢复点"], "workflows/runtime.py", common.checkpoint),
+        node("resume", 1300, 1405, 300, 115, C.blue, "Resume", ["Command(resume=decision)", "从 interrupt 后继续"], "GraphRuntime.resume"),
+        node("cleanup", 1700, 1405, 300, 115, C.gray, "保留与清理", ["完成 thread 归档", "TTL、审计和数据删除"], "checkpoint maintenance"),
+      ],
+      edges: [
+        edge("user","candidate"), edge("tool","candidate"), edge("human","candidate"), edge("risk","candidate"), edge("model","writeGate","禁止直接写"), edge("sensitive","writeGate","拒绝"),
+        edge("messages","window"), edge("window","summaryGate"), edge("summaryGate","summary"), edge("summary","context"), edge("window","context"),
+        edge("candidate","writeGate"), edge("writeGate","verify"), edge("writeGate","conflict"), edge("verify","store"), edge("conflict","store"), edge("store","retrieve"), edge("store","manage"), edge("retrieve","context"),
+        edge("graphState","thread"), edge("thread","checkpoint"), edge("checkpoint","resume"), edge("resume","graphState"), edge("checkpoint","cleanup")
+      ]
+    },
+    {
+      id: "governance", name: "成本、安全与可观测", desc: "Agent 的生产能力来自策略、证据和可恢复控制，而不是只接一个模型", size: [2460, 1750],
+      sections: [
+        [40, 40, 2380, 340, "1. 请求策略与成本控制", "不拒绝服务，通过模型、检索和上下文策略平滑降级"],
+        [40, 410, 2380, 400, "2. 安全与一致性", "身份、工具、副作用和跨系统写入的多层约束"],
+        [40, 840, 2380, 430, "3. 可观测性", "一次请求能追到 Graph、LLM、RAG、MCP 和数据库"],
+        [40, 1300, 2380, 390, "4. 评测与持续改进", "离线基线、在线反馈、发布门禁和回归"],
+      ],
+      nodes: [
+        node("tier", 100, 145, 280, 115, C.gray, "租户等级", ["basic / standard / premium", "套餐能力和服务目标"], "tenant tier policy"),
+        node("usage", 470, 145, 280, 115, C.cyan, "今日用量", ["prompt / completion tokens", "调用次数与估算成本"], "TenantUsage"),
+        node("strategy", 840, 145, 300, 115, C.blue, "CostStrategy", ["model / top_k / history", "rerank / cache_first"], "domain/cost.py"),
+        node("soft", 1230, 95, 300, 115, C.gray, "软降级", ["接近预算阈值", "降模型、候选和历史窗口"], "_soft_degrade"),
+        node("hard", 1230, 265, 300, 115, C.gray, "硬降级", ["超过预算", "保留基础回答和关键工具"], "_hard_degrade"),
+        node("quality", 1620, 145, 300, 115, C.green, "质量底线", ["高风险不因省钱跳过确认", "可靠证据和安全检查保留"], "policy floor"),
+        node("cache", 2010, 145, 300, 115, C.cyan, "缓存策略", ["稳定问答优先复用", "实时/资金/风控禁止长缓存"], "SemanticCache"),
+
+        node("principal", 100, 530, 300, 120, C.red, "可信主体", ["客户、坐席、运营、服务", "tenant / roles / scopes"], "CurrentPrincipal", common.identity),
+        node("input", 490, 530, 300, 120, C.red, "输入与 Prompt 防护", ["长度、文件、注入、越权", "敏感字段和日志脱敏"], "security middleware"),
+        node("output", 880, 530, 300, 120, C.red, "结构化输出校验", ["Pydantic / JSON Schema", "实体来源与业务规则"], "validators"),
+        node("action", 1270, 530, 300, 120, C.red, "动作安全", ["Tool 白名单、参数、风险", "HIL、Token、防重放"], "ToolRegistry + HIL"),
+        node("consistent", 1660, 530, 300, 120, C.red, "一致性", ["幂等、Outbox、补偿", "超时后状态查询与对账"], "consistency layer"),
+        node("privacy", 2050, 530, 300, 120, C.red, "数据治理", ["最小采集、保留周期", "删除权、加密、审计"], "privacy policy"),
+
+        node("ids", 100, 960, 300, 120, C.gray, "统一关联 ID", ["request / trace / run", "thread / conversation / tenant"], "trace conventions"),
+        node("otel", 490, 960, 300, 120, C.gray, "OpenTelemetry", ["HTTP / Graph / LLM / RAG / MCP", "跨服务 Span Context"], "observability/telemetry.py"),
+        node("metrics", 880, 960, 300, 120, C.gray, "Prometheus Metrics", ["吞吐、延迟、错误、Token", "缓存、工具、检索质量"], "observability/metrics.py"),
+        node("logs", 1270, 960, 300, 120, C.gray, "结构化日志", ["事件、错误码、业务状态", "默认不记录敏感原文"], "core/logging.py"),
+        node("langsmith", 1660, 960, 300, 120, C.gray, "LangSmith", ["脱敏 Agent 运行链", "数据集、实验与回归"], "optional tracing"),
+        node("grafana", 2050, 960, 300, 120, C.gray, "Grafana 与告警", ["租户成本、失败率、P95", "外部依赖和质量异常"], "monitoring"),
+
+        node("datasets", 100, 1410, 300, 120, C.gray, "评测数据集", ["真实匿名样本 + 对抗样本", "RAG / Rewrite / Plan / Tool"], "evaluation datasets"),
+        node("offline", 490, 1410, 300, 120, C.green, "离线评测", ["检索、答案、计划、安全", "成本与延迟联合比较"], "evaluation scripts"),
+        node("online", 880, 1410, 300, 120, C.green, "在线观测", ["用户反馈、转人工率", "任务成功率和业务结果"], "online metrics"),
+        node("gate", 1270, 1410, 300, 120, C.red, "发布门禁", ["基线下降阻断", "模型/Prompt/知识版本对比"], "CI quality gate"),
+        node("canary", 1660, 1410, 300, 120, C.blue, "灰度与回滚", ["按租户/流量分组", "自动或人工回滚"], "deployment policy"),
+        node("feedback", 2050, 1410, 300, 120, C.blue, "反馈闭环", ["失败样本进入分析队列", "修知识、规则、工具或模型"], "continuous improvement"),
+      ],
+      edges: [
+        edge("tier","strategy"), edge("usage","strategy"), edge("strategy","soft"), edge("strategy","hard"), edge("soft","quality"), edge("hard","quality"), edge("quality","cache"),
+        edge("principal","input"), edge("input","output"), edge("output","action"), edge("action","consistent"), edge("consistent","privacy"),
+        edge("ids","otel"), edge("otel","metrics"), edge("otel","logs"), edge("otel","langsmith"), edge("metrics","grafana"), edge("logs","grafana"),
+        edge("datasets","offline"), edge("offline","gate"), edge("online","gate"), edge("gate","canary"), edge("canary","feedback"), edge("feedback","datasets")
+      ]
+    },
+    {
+      id: "framework", name: "可复用大型 Agent 框架", desc: "换成旅行、采购、运维、Coding 或金融场景时仍可沿用的设计骨架", size: [2520, 1900],
+      sections: [
+        [40, 40, 2440, 260, "A. 业务问题定义", "先定义任务、事实来源、动作边界和失败代价，再决定是否需要 Agent"],
+        [40, 330, 2440, 960, "B. Agent 核心闭环", "Understand → Plan → Act → Observe → Recover → Answer"],
+        [40, 1320, 2440, 520, "C. 九项横切工程能力", "任何大型 Agent 都必须显式设计"],
+      ],
+      nodes: [
+        node("goal", 100, 115, 300, 110, C.gray, "业务目标", ["要完成什么任务", "成功如何量化"], "domain objective"),
+        node("facts", 490, 115, 300, 110, C.green, "事实来源", ["知识库 / 数据库 / API", "哪些来源具有权威性"], "source of truth"),
+        node("actions", 880, 115, 300, 110, C.amber, "可执行动作", ["只读、写入、外部副作用", "失败能否撤销"], "capability map"),
+        node("risk", 1270, 115, 300, 110, C.red, "风险分级", ["错误代价、合规要求", "何时必须人工介入"], "risk taxonomy"),
+        node("sla", 1660, 115, 300, 110, C.gray, "SLA 与成本", ["延迟、并发、可用性", "Token 与外部调用预算"], "service objectives"),
+        node("fallback", 2050, 115, 300, 110, C.gray, "非 Agent 兜底", ["规则、传统工作流、人工", "不是所有问题都交给模型"], "fallback design"),
+
+        node("input", 100, 430, 300, 120, C.red, "1. Perceive / Intake", ["身份、输入、附件、渠道", "校验、脱敏、标准化"], "API + security"),
+        node("understand", 500, 430, 300, 120, C.green, "2. Understand", ["意图、实体、上下文依赖", "改写、追问、路由"], "query understanding"),
+        node("context", 900, 430, 300, 120, C.cyan, "3. Build Context", ["短期窗口、摘要、长期记忆", "RAG 证据和实时事实"], "context engineering"),
+        node("plan", 1300, 430, 300, 120, C.blue, "4. Plan / Route", ["简单直答、ReAct、DAG", "结构化、有限、可校验"], "planner"),
+        node("act", 1700, 430, 300, 120, C.amber, "5. Act", ["Tool / MCP / Agent-to-Agent", "超时、幂等、最小权限"], "action runtime"),
+        node("observe", 2100, 430, 300, 120, C.green, "6. Observe", ["结构化结果、错误、证据", "更新状态而非只拼文本"], "observations"),
+
+        node("validate", 2100, 700, 300, 120, C.red, "7. Validate", ["事实、Schema、安全、业务规则", "输出与动作双重校验"], "validators"),
+        node("recover", 1700, 700, 300, 120, C.blue, "8. Recover / Reflect", ["有界重试、改写、补偿", "追问、降级、转人工"], "recovery policy"),
+        node("answer", 1300, 700, 300, 120, C.green, "9. Answer / Commit", ["答案、引用、业务结果", "事务、事件、记忆准入"], "finalization"),
+        node("state", 900, 700, 300, 120, C.blue, "10. State / Checkpoint", ["可恢复业务进度", "thread 与运行上下文分离"], "durable runtime", common.graphState),
+        node("feedback", 500, 700, 300, 120, C.gray, "11. Evaluate", ["任务成功、质量、延迟、成本", "失败样本闭环"], "evaluation"),
+        node("iterate", 100, 700, 300, 120, C.gray, "12. Improve", ["修数据、Prompt、工具、策略", "版本化与灰度"], "continuous delivery"),
+
+        node("choose", 100, 990, 350, 150, C.blue, "编排模式选择", ["固定流程：确定性强", "ReAct：开放探索", "Plan-DAG：多任务依赖", "Multi-Agent：边界明确才使用"], "architecture decision"),
+        node("bound", 540, 990, 350, 150, C.red, "循环与预算边界", ["最大节点 / LLM / Tool 次数", "deadline / recursion_limit", "重复动作检测", "失败依赖跳过"], "execution budget"),
+        node("human", 980, 990, 350, 150, C.red, "人机协同", ["审批：高风险动作", "接管：模型无法处理", "复核：高代价结论", "异步恢复：不占连接"], "HIL patterns"),
+        node("truth", 1420, 990, 350, 150, C.green, "事实与推理分离", ["稳定政策 → RAG", "实时状态 → Tool", "模型 → 解释与决策", "后端 → 校验与执行"], "truth architecture"),
+        node("result", 1860, 990, 440, 150, C.gray, "失败分类", ["输入不足 / 无知识 / 检索失败", "模型拒绝 / 工具失败 / 安全拦截", "依赖超时 / 局部成功 / 用户取消", "每类失败采用不同恢复策略"], "error taxonomy"),
+
+        node("x1", 100, 1435, 280, 120, C.red, "① 身份与权限", ["Principal / RBAC / tenant", "服务间认证"], "security"),
+        node("x2", 460, 1435, 280, 120, C.cyan, "② 状态与记忆", ["State / Checkpoint", "短期 / 长期记忆"], "state"),
+        node("x3", 820, 1435, 280, 120, C.red, "③ 安全与 HIL", ["风险分级、审批", "审计与防重放"], "safety"),
+        node("x4", 1180, 1435, 280, 120, C.gray, "④ 成本与性能", ["模型路由、缓存", "并发、预算、降级"], "cost"),
+        node("x5", 1540, 1435, 280, 120, C.gray, "⑤ 可观测性", ["Trace / Metrics / Logs", "质量与业务指标"], "observability"),
+        node("x6", 1900, 1435, 280, 120, C.red, "⑥ 一致性", ["事务、幂等、Outbox", "补偿与对账"], "consistency"),
+        node("x7", 280, 1650, 300, 120, C.green, "⑦ 评测", ["离线集、在线反馈", "安全与对抗测试"], "evaluation"),
+        node("x8", 740, 1650, 300, 120, C.gray, "⑧ 可靠性", ["超时、重试、熔断", "隔离、容灾、恢复"], "reliability"),
+        node("x9", 1200, 1650, 300, 120, C.gray, "⑨ 交付治理", ["版本、CI、灰度、回滚", "迁移、备份、密钥"], "delivery"),
+        node("checklist", 1660, 1630, 600, 150, C.blue, "设计评审五问", ["事实从哪里来？动作由谁真正执行？", "错误如何被发现和纠正？", "中断后如何恢复且不重复执行？", "质量、成本和业务成功如何量化？"], "architecture review"),
+      ],
+      edges: [
+        edge("goal","facts"), edge("facts","actions"), edge("actions","risk"), edge("risk","sla"), edge("sla","fallback"),
+        edge("input","understand"), edge("understand","context"), edge("context","plan"), edge("plan","act"), edge("act","observe"), edge("observe","validate"), edge("validate","answer","通过"), edge("validate","recover","失败"), edge("recover","plan","可重试"), edge("recover","answer","降级/人工"), edge("answer","state"), edge("state","feedback"), edge("feedback","iterate"), edge("iterate","input"),
+        edge("choose","bound"), edge("bound","human"), edge("human","truth"), edge("truth","result")
+      ]
+    }
+  ];
+
+  const state = { viewIndex: 0, scale: 1, tx: 0, ty: 0, dragging: false, x: 0, y: 0, selected: null };
+  const nav = document.getElementById("nav");
+  const viewport = document.getElementById("viewport");
+  const canvas = document.getElementById("canvas");
+  const canvasWrap = document.getElementById("canvasWrap");
+  const detailPanel = document.getElementById("detailPanel");
+  const detailContent = document.getElementById("detailContent");
+
+  function renderNav() {
+    nav.innerHTML = '<div class="nav-title">图谱目录</div>' + views.map((view, index) => `
+      <button class="nav-item ${index === state.viewIndex ? "active" : ""}" data-index="${index}">
+        <span class="nav-num">${String(index + 1).padStart(2, "0")}</span>
+        <span class="nav-name">${view.name}</span>
+        <span class="nav-desc">${view.desc}</span>
+      </button>`).join("");
+    nav.querySelectorAll(".nav-item").forEach(item => item.addEventListener("click", () => {
+      state.viewIndex = Number(item.dataset.index);
+      state.selected = null;
+      renderNav(); renderView(); fitView(); clearDetail();
+    }));
+  }
+
+  function sectionMarkup(section) {
+    const [x, y, w, h, title, note] = section;
+    return `<g><rect class="section-box" x="${x}" y="${y}" width="${w}" height="${h}"/>
+      <text class="section-title" x="${x + 22}" y="${y + 34}">${title}</text>
+      <text class="section-note" x="${x + 22}" y="${y + 60}">${note}</text></g>`;
+  }
+
+  function nodeMarkup(n, index) {
+    const lineHtml = n.lines.map(value => `<div>• ${value}</div>`).join("");
+    return `<g class="node-card node-${n.color}" data-id="${n.id}" transform="translate(${n.x},${n.y})">
+      <rect class="node-bg" width="${n.w}" height="${n.h}"/>
+      <circle class="node-index-bg ${n.color}" cx="25" cy="25" r="15"/>
+      <text class="node-index" x="25" y="25">${index + 1}</text>
+      <foreignObject x="49" y="13" width="${n.w - 60}" height="${n.h - 20}">
+        <div xmlns="http://www.w3.org/1999/xhtml">
+          <div class="node-title">${n.title}</div>
+          <div class="node-lines">${lineHtml}</div>
+          ${n.code ? `<div class="node-code">${n.code}</div>` : ""}
+        </div>
+      </foreignObject>
+    </g>`;
+  }
+
+  function anchor(n, side) {
+    if (side === "left") return [n.x, n.y + n.h / 2];
+    if (side === "right") return [n.x + n.w, n.y + n.h / 2];
+    if (side === "top") return [n.x + n.w / 2, n.y];
+    return [n.x + n.w / 2, n.y + n.h];
+  }
+
+  function edgeMarkup(e, nodesById) {
+    const a = nodesById[e.from], b = nodesById[e.to];
+    if (!a || !b) return "";
+    const dx = (b.x + b.w / 2) - (a.x + a.w / 2);
+    const dy = (b.y + b.h / 2) - (a.y + a.h / 2);
+    let fromSide, toSide;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      fromSide = dx >= 0 ? "right" : "left";
+      toSide = dx >= 0 ? "left" : "right";
+    } else {
+      fromSide = dy >= 0 ? "bottom" : "top";
+      toSide = dy >= 0 ? "top" : "bottom";
+    }
+    const [x1, y1] = anchor(a, e.fromSide || fromSide);
+    const [x2, y2] = anchor(b, e.toSide || toSide);
+    let path;
+    if (e.points) {
+      path = `M ${x1} ${y1} ` + e.points.map(p => `L ${p[0]} ${p[1]}`).join(" ") + ` L ${x2} ${y2}`;
+    } else if (Math.abs(dx) >= Math.abs(dy)) {
+      const mx = (x1 + x2) / 2;
+      path = `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
+    } else {
+      const my = (y1 + y2) / 2;
+      path = `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`;
+    }
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+    const label = e.label ? `<g><rect class="edge-label-bg" x="${mx - 55}" y="${my - 14}" width="110" height="24"/><text class="edge-label" x="${mx}" y="${my + 3}">${e.label}</text></g>` : "";
+    return `<g><path class="edge ${e.dashed ? "dashed" : ""}" d="${path}"/>${label}</g>`;
+  }
+
+  function renderView() {
+    const view = views[state.viewIndex];
+    document.getElementById("viewTitle").textContent = view.name;
+    document.getElementById("viewDescription").textContent = view.desc;
+    canvas.setAttribute("viewBox", `0 0 ${canvasWrap.clientWidth || 1200} ${canvasWrap.clientHeight || 800}`);
+    const nodesById = Object.fromEntries(view.nodes.map(n => [n.id, n]));
+    viewport.innerHTML = view.sections.map(sectionMarkup).join("") +
+      `<g class="edges">${view.edges.map(e => edgeMarkup(e, nodesById)).join("")}</g>` +
+      `<g class="nodes">${view.nodes.map(nodeMarkup).join("")}</g>`;
+    viewport.querySelectorAll(".node-card").forEach(card => card.addEventListener("click", event => {
+      event.stopPropagation();
+      selectNode(card.dataset.id);
+    }));
+    applyTransform();
+  }
+
+  function selectNode(id) {
+    const view = views[state.viewIndex];
+    const n = view.nodes.find(item => item.id === id);
+    if (!n) return;
+    state.selected = id;
+    detailContent.className = "";
+    viewport.querySelectorAll(".node-card").forEach(card => card.classList.toggle("selected", card.dataset.id === id));
+    const d = n.detail || {};
+    const list = values => values?.length ? `<ul>${values.map(v => `<li>${v}</li>`).join("")}</ul>` : "<div class='framework-card'>该节点的字段和行为以代码契约为准。</div>";
+    detailContent.innerHTML = `
+      <div class="detail-eyebrow">${view.name} · ${n.color.toUpperCase()}</div>
+      <h3>${n.title}</h3>
+      <p class="detail-summary">${d.summary || n.lines.join("；") + "。"}</p>
+      <div class="detail-section"><h4>输入</h4>${list(d.input)}</div>
+      <div class="detail-section"><h4>输出</h4>${list(d.output)}</div>
+      <div class="detail-section"><h4>关键约束</h4>${list(d.guard)}</div>
+      <div class="detail-section"><h4>项目代码位置</h4><span class="code-ref">${n.code || "架构层能力"}</span></div>
+      <div class="detail-section"><h4>迁移到其他 Agent 时</h4><div class="framework-card">${d.reusable || "保留该节点的输入输出契约和治理边界，替换具体业务实现即可。"}</div></div>`;
+    detailPanel.classList.add("open");
+  }
+
+  function clearDetail() {
+    detailContent.innerHTML = "点击图中的任意节点，查看职责、输入输出、关键约束、代码位置，以及迁移到其他 Agent 项目时可复用的设计原则。";
+    detailContent.className = "empty-detail";
+    detailPanel.classList.remove("open");
+  }
+
+  function applyTransform() {
+    viewport.setAttribute("transform", `translate(${state.tx} ${state.ty}) scale(${state.scale})`);
+    document.getElementById("zoomLabel").textContent = `${Math.round(state.scale * 100)}%`;
+  }
+
+  function fitView() {
+    const view = views[state.viewIndex];
+    const w = canvasWrap.clientWidth, h = canvasWrap.clientHeight;
+    state.scale = Math.min((w - 40) / view.size[0], (h - 40) / view.size[1]);
+    state.tx = (w - view.size[0] * state.scale) / 2;
+    state.ty = (h - view.size[1] * state.scale) / 2;
+    applyTransform();
+  }
+
+  function zoomAt(factor, cx = canvasWrap.clientWidth / 2, cy = canvasWrap.clientHeight / 2) {
+    const old = state.scale;
+    const next = Math.max(.18, Math.min(2.2, old * factor));
+    const worldX = (cx - state.tx) / old, worldY = (cy - state.ty) / old;
+    state.scale = next;
+    state.tx = cx - worldX * next;
+    state.ty = cy - worldY * next;
+    applyTransform();
+  }
+
+  document.getElementById("zoomIn").addEventListener("click", () => zoomAt(1.18));
+  document.getElementById("zoomOut").addEventListener("click", () => zoomAt(.84));
+  document.getElementById("fitView").addEventListener("click", fitView);
+  document.getElementById("resetView").addEventListener("click", () => { state.scale = 1; state.tx = 20; state.ty = 20; applyTransform(); });
+  canvasWrap.addEventListener("wheel", event => { event.preventDefault(); const rect = canvasWrap.getBoundingClientRect(); zoomAt(event.deltaY < 0 ? 1.1 : .9, event.clientX - rect.left, event.clientY - rect.top); }, {passive:false});
+  canvasWrap.addEventListener("pointerdown", event => { if (event.target.closest(".node-card")) return; state.dragging = true; state.x = event.clientX; state.y = event.clientY; canvasWrap.classList.add("dragging"); canvasWrap.setPointerCapture(event.pointerId); });
+  canvasWrap.addEventListener("pointermove", event => { if (!state.dragging) return; state.tx += event.clientX - state.x; state.ty += event.clientY - state.y; state.x = event.clientX; state.y = event.clientY; applyTransform(); });
+  canvasWrap.addEventListener("pointerup", () => { state.dragging = false; canvasWrap.classList.remove("dragging"); });
+  canvasWrap.addEventListener("click", event => { if (event.target === canvas || event.target.classList.contains("grid-pattern")) clearDetail(); });
+  document.getElementById("searchInput").addEventListener("input", event => {
+    const query = event.target.value.trim().toLowerCase();
+    const view = views[state.viewIndex];
+    viewport.querySelectorAll(".node-card").forEach(card => {
+      const n = view.nodes.find(item => item.id === card.dataset.id);
+      const haystack = `${n.title} ${n.lines.join(" ")} ${n.code || ""}`.toLowerCase();
+      card.classList.toggle("search-hit", Boolean(query && haystack.includes(query)));
+    });
+  });
+  window.addEventListener("resize", () => { canvas.setAttribute("viewBox", `0 0 ${canvasWrap.clientWidth} ${canvasWrap.clientHeight}`); fitView(); });
+
+  renderNav();
+  renderView();
+  requestAnimationFrame(fitView);
+</script>
+</body>
+</html>
