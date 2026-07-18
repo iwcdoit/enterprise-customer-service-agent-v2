@@ -94,6 +94,12 @@ class Settings(BaseSettings):
     plan_max_steps: int = 6
     react_step_timeout_seconds: float = 20.0
 
+    graph_checkpointer: str = "memory"
+    graph_checkpoint_postgres_url: str = ""
+    graph_checkpoint_setup: bool = True
+    graph_durability: str = "async"
+    graph_recursion_limit: int = 32
+
     jwt_secret_key: str = ""
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60

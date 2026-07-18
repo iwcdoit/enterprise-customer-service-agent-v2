@@ -7,12 +7,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from customer_service_app.core.config import Settings
 from customer_service_app.domain.planning import AgentPlan, PlanExecutionResult
+from customer_service_app.core.exceptions import AppError
 from customer_service_app.domain.schemas import (
     ChatMessage,
     ChatRequest,
     ChatResponse,
     ChatTraceStep,
+    GraphStateView,
     KnowledgeChunk,
+    PendingActionView,
     ToolCallView,
     ToolResultView,
 )
@@ -34,6 +37,7 @@ from customer_service_app.services.question_preprocessor import QuestionPreproce
 from customer_service_app.services.rag_service import RagService
 from customer_service_app.services.react_executor import ReactExecutor
 from customer_service_app.services.tool_registry import ToolExecutionContext, ToolRegistry
+from customer_service_app.workflows.context import CustomerServiceGraphContext
 from customer_service_app.workflows.nodes import CustomerServiceGraphNodes
 from customer_service_app.workflows.runtime import CustomerServiceGraphRuntime
 
@@ -49,6 +53,7 @@ class CustomerServiceAgent:
         *,
         settings: Settings,
         session: AsyncSession,
+        graph_runtime: CustomerServiceGraphRuntime,
         llm_client: LLMClient,
         rag_service: RagService,
         tool_registry: ToolRegistry,
@@ -70,6 +75,7 @@ class CustomerServiceAgent:
         self._semantic_cache = semantic_cache
         self._cost_service = cost_service
         self._human_support_service = human_support_service
+        self._graph_runtime = graph_runtime
         self._conversation_service = ConversationService(session)
         self._confirmation_service = ConfirmationService(session, settings)
         self._memory_compactor = ConversationMemoryCompactor()
@@ -100,11 +106,13 @@ class CustomerServiceAgent:
             cost_service=cost_service,
             conversation_service=self._conversation_service,
             confirmation_service=self._confirmation_service,
+            tool_registry=tool_registry,
             tool_context=tool_context,
             answer_handler=self._answer_turn,
             planning_enabled=settings.planning_enabled,
         )
-        self._graph_runtime = CustomerServiceGraphRuntime(graph_nodes)
+        self._graph_nodes = graph_nodes
+        self._graph_context = CustomerServiceGraphContext(nodes=graph_nodes)
 
     async def answer(self, request: ChatRequest) -> ChatResponse:
         """统一从 LangGraph 编排入口处理一轮客服请求。"""
@@ -135,7 +143,9 @@ class CustomerServiceAgent:
                     await self._session.commit()
                     return ChatResponse(
                         conversation_id=request.conversation_id,
+                        thread_id=request.thread_id,
                         answer=answer,
+                        status="human_active" if handoff.assigned_agent_id else "waiting_human",
                         service_mode="human",
                         human_handoff=self._human_support_service.to_view(handoff),
                         trace=[
@@ -145,10 +155,75 @@ class CustomerServiceAgent:
                             )
                         ],
                     )
-            return await self._graph_runtime.invoke(request)
+            state = await self._graph_runtime.invoke(
+                request_payload=request.model_dump(mode="json"),
+                context=self._graph_context,
+                thread_id=request.thread_id,
+            )
+            await self._session.commit()
+            return self._graph_nodes.to_response(state)
         except Exception:
             await self._session.rollback()
             raise
+
+    async def resume_confirmation(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        confirmation_id: str,
+        decision: str,
+        reason: str | None,
+    ) -> ChatResponse:
+        """恢复确认单绑定的原 LangGraph thread，而不是重新发起聊天。"""
+
+        try:
+            action = await self._confirmation_service.get_owned(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                action_id=confirmation_id,
+            )
+            if not action.thread_id:
+                raise AppError(
+                    "Confirmation is not bound to a graph thread",
+                    code="confirmation_thread_missing",
+                    status_code=409,
+                )
+            state = await self._graph_runtime.resume(
+                thread_id=action.thread_id,
+                decision={
+                    "confirmation_id": confirmation_id,
+                    "decision": decision,
+                    "reason": reason,
+                },
+                context=self._graph_context,
+            )
+            await self._session.commit()
+            return self._graph_nodes.to_response(state)
+        except Exception:
+            await self._session.rollback()
+            raise
+
+    async def graph_state(self, *, thread_id: str) -> GraphStateView:
+        """读取指定 Graph thread 的脱敏 checkpoint 快照。"""
+
+        return await self._graph_runtime.get_state(thread_id=thread_id)
+
+    async def get_confirmation(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        confirmation_id: str,
+    ) -> PendingActionView:
+        """读取当前用户自己的确认单。"""
+
+        action = await self._confirmation_service.get_owned(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            action_id=confirmation_id,
+        )
+        return self._confirmation_service.to_view(action)
 
     async def _answer_turn(
         self,
@@ -359,6 +434,11 @@ class CustomerServiceAgent:
             yield self._sse("knowledge", chunk.model_dump())
         for tool_result in response.tool_results:
             yield self._sse("tool_result", tool_result.model_dump())
+        if response.pending_confirmation is not None:
+            yield self._sse(
+                "confirmation_required",
+                response.pending_confirmation.model_dump(mode="json"),
+            )
         yield self._sse("answer", {"content": response.answer})
         yield self._sse("done", response.model_dump())
 

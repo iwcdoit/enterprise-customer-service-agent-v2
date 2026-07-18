@@ -161,8 +161,10 @@ class PendingAction(Base):
     confirmation_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     tool_name: Mapped[str] = mapped_column(String(128), index=True)
     arguments_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    result_json: Mapped[dict] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

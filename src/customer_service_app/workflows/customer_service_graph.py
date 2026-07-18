@@ -1,31 +1,68 @@
 from __future__ import annotations
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.runtime import Runtime
+from langgraph.types import RetryPolicy
 
-from customer_service_app.workflows.nodes import CustomerServiceGraphNodes
+from customer_service_app.core.exceptions import ExternalServiceError
+from customer_service_app.workflows.context import CustomerServiceGraphContext
 from customer_service_app.workflows.state import CustomerServiceGraphState
 
 
-def build_customer_service_graph(nodes: CustomerServiceGraphNodes):
-    """构建第一版业务的 V2 编排图。
+def build_customer_service_graph(checkpointer):
+    """构建支持 Checkpoint 和 HIL 恢复的客服业务图。
 
-    简单请求跳过 Planner；复杂请求先生成有界计划并经过 ReAct 执行，
-    最后统一进入原有回答链路生成回复并保存结果。
+    图文件只声明拓扑。每个 wrapper 从 Runtime Context 取得当前请求的 Nodes，真正的
+    会话、Planner、工具执行和确认逻辑都在 ``nodes.py`` 中。
     """
 
-    graph = StateGraph(CustomerServiceGraphState)
-    graph.add_node("prepare", nodes.prepare)
-    graph.add_node("plan", nodes.plan)
-    graph.add_node("execute_plan", nodes.execute_plan)
-    graph.add_node("answer", nodes.answer)
-
-    graph.add_edge(START, "prepare")
-    graph.add_conditional_edges(
-        "prepare",
-        lambda state: state["route"],
-        {"plan": "plan", "answer": "answer"},
+    graph = StateGraph(
+        CustomerServiceGraphState,
+        context_schema=CustomerServiceGraphContext,
     )
-    graph.add_edge("plan", "execute_plan")
-    graph.add_edge("execute_plan", "answer")
+
+    async def prepare(state, runtime: Runtime[CustomerServiceGraphContext]):
+        return await runtime.context.nodes.prepare(state)
+
+    async def plan(state, runtime: Runtime[CustomerServiceGraphContext]):
+        return await runtime.context.nodes.plan(state)
+
+    async def execute_plan(state, runtime: Runtime[CustomerServiceGraphContext]):
+        return await runtime.context.nodes.execute_plan(state)
+
+    async def await_confirmation(state, runtime: Runtime[CustomerServiceGraphContext]):
+        return await runtime.context.nodes.await_confirmation(state)
+
+    async def apply_confirmation(state, runtime: Runtime[CustomerServiceGraphContext]):
+        return await runtime.context.nodes.apply_confirmation(state)
+
+    async def answer(state, runtime: Runtime[CustomerServiceGraphContext]):
+        return await runtime.context.nodes.answer(state)
+
+    external_retry = RetryPolicy(
+        max_attempts=2,
+        initial_interval=0.5,
+        backoff_factor=2,
+        retry_on=ExternalServiceError,
+    )
+    graph.add_node("prepare", prepare, destinations=("plan", "answer"))
+    graph.add_node("plan", plan, retry_policy=external_retry, destinations=("execute_plan",))
+    graph.add_node(
+        "execute_plan",
+        execute_plan,
+        destinations=("await_confirmation", "answer"),
+    )
+    graph.add_node(
+        "await_confirmation",
+        await_confirmation,
+        destinations=("apply_confirmation",),
+    )
+    graph.add_node(
+        "apply_confirmation",
+        apply_confirmation,
+        destinations=("await_confirmation", "answer"),
+    )
+    graph.add_node("answer", answer)
+    graph.add_edge(START, "prepare")
     graph.add_edge("answer", END)
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)

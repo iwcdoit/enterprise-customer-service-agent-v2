@@ -45,6 +45,7 @@ class ChatRequest(BaseModel):
     tenant_id: str = Field(default="default", description="租户或业务线 ID")
     user_id: str = Field(description="当前用户 ID")
     conversation_id: str | None = Field(default=None, description="为空时自动创建会话")
+    thread_id: str | None = Field(default=None, description="LangGraph checkpoint 线程 ID")
     question: str = Field(min_length=1, max_length=8000)
     history: list[ChatMessage] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -109,7 +110,9 @@ class ChatResponse(BaseModel):
     """
 
     conversation_id: str
+    thread_id: str | None = None
     answer: str
+    status: str = "completed"
     cache_hit: bool = False
     knowledge: list[KnowledgeChunk] = Field(default_factory=list)
     tool_calls: list[ToolCallView] = Field(default_factory=list)
@@ -118,6 +121,7 @@ class ChatResponse(BaseModel):
     plan_execution: PlanExecutionResult | None = None
     service_mode: str = "bot"
     human_handoff: HumanHandoffView | None = None
+    pending_confirmation: PendingActionView | None = None
     trace: list[ChatTraceStep] = Field(default_factory=list)
 
 
@@ -166,6 +170,20 @@ class ConfirmationDecisionRequest(BaseModel):
     comment: str | None = None
 
 
+class ConfirmationDecisionResponse(BaseModel):
+    """确认后恢复原 Graph thread 的结果。"""
+
+    confirmation_id: str
+    decision: Literal["approve", "reject"]
+    graph_status: str
+    conversation_id: str | None = None
+    thread_id: str | None = None
+    answer: str = ""
+    next_confirmation: PendingActionView | None = None
+    tool_results: list[ToolResultView] = Field(default_factory=list)
+    trace: list[ChatTraceStep] = Field(default_factory=list)
+
+
 class PendingActionView(BaseModel):
     """等待用户或人工客服确认的工具动作。"""
 
@@ -179,9 +197,29 @@ class PendingActionView(BaseModel):
     arguments: dict[str, Any]
     status: str
     comment: str | None = None
+    result: dict[str, Any] = Field(default_factory=dict)
+    error_message: str | None = None
     created_at: datetime | None = None
     expires_at: datetime | None = None
     expired: bool = False
+
+
+class GraphTaskView(BaseModel):
+    """Checkpoint 中一个尚未完成的 LangGraph task。"""
+
+    id: str
+    name: str
+    interrupts: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class GraphStateView(BaseModel):
+    """运营侧可读取的脱敏 Graph checkpoint 快照。"""
+
+    thread_id: str
+    status: str
+    next_nodes: list[str] = Field(default_factory=list)
+    values: dict[str, Any] = Field(default_factory=dict)
+    tasks: list[GraphTaskView] = Field(default_factory=list)
 
 
 class RuntimeConfigView(BaseModel):
@@ -233,3 +271,8 @@ class HealthResponse(BaseModel):
     status: str
     app: str
     runtime_env: str
+
+
+# ChatResponse 在文件前部引用了后面声明的 PendingActionView；模块加载完成后统一解析前向引用。
+ChatResponse.model_rebuild()
+ConfirmationDecisionResponse.model_rebuild()

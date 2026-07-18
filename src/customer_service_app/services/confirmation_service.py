@@ -60,6 +60,24 @@ class ConfirmationService:
             return views
         return [view for view in views if not view.expired]
 
+    async def get_owned(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        action_id: str,
+    ) -> PendingAction:
+        """读取当前用户自己的确认动作，供 Graph 恢复前校验线程归属。"""
+
+        action = await self._repo.get_owned(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            action_id=action_id,
+        )
+        if action is None:
+            raise AppError("Pending action not found", code="not_found", status_code=404)
+        return action
+
     async def approve(
         self,
         *,
@@ -90,6 +108,42 @@ class ConfirmationService:
             action_id=action_id,
         )
         action = await self._repo.mark_rejected(action, comment=comment)
+        return self._to_view(action)
+
+    async def mark_executed(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        action_id: str,
+        result: dict,
+    ) -> PendingActionView:
+        """把用户批准后的真实工具执行结果写回确认记录。"""
+
+        action = await self.get_owned(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            action_id=action_id,
+        )
+        action = await self._repo.mark_executed(action, result=result)
+        return self._to_view(action)
+
+    async def mark_failed(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        action_id: str,
+        error_message: str,
+    ) -> PendingActionView:
+        """记录确认后的工具失败，避免确认单永久停在 approved。"""
+
+        action = await self.get_owned(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            action_id=action_id,
+        )
+        action = await self._repo.mark_failed(action, error_message=error_message)
         return self._to_view(action)
 
     async def _get_pending_action(
@@ -147,7 +201,14 @@ class ConfirmationService:
             arguments=dict(action.arguments_json or {}),
             status=action.status,
             comment=action.comment,
+            result=dict(action.result_json or {}),
+            error_message=action.error_message,
             created_at=action.created_at,
             expires_at=expires_at,
             expired=bool(expires_at and datetime.now(timezone.utc) > expires_at),
         )
+
+    def to_view(self, action: PendingAction) -> PendingActionView:
+        """把 ORM 确认记录转换为稳定的 API DTO。"""
+
+        return self._to_view(action)

@@ -411,3 +411,30 @@ class PendingActionRepository:
         action.decided_at = datetime.now(timezone.utc)
         await self._session.flush()
         return action
+
+    async def mark_executed(
+        self,
+        action: PendingAction,
+        *,
+        result: dict,
+    ) -> PendingAction:
+        """保存 HIL 恢复后真实工具的执行结果。"""
+
+        action.status = "executed"
+        action.result_json = result
+        action.error_message = None
+        await self._session.flush()
+        return action
+
+    async def mark_failed(
+        self,
+        action: PendingAction,
+        *,
+        error_message: str,
+    ) -> PendingAction:
+        """记录用户已批准、但真实工具执行失败的状态。"""
+
+        action.status = "failed"
+        action.error_message = error_message
+        await self._session.flush()
+        return action
