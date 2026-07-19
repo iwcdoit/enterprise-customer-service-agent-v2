@@ -9,7 +9,6 @@ from sqlalchemy import select
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-# 让脚本可以直接导入项目源码。
 
 from customer_service_app.infrastructure.db.models import Order  # noqa: E402
 from customer_service_app.infrastructure.db.session import dispose_engine, session_context  # noqa: E402

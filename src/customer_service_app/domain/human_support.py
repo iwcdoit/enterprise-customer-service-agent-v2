@@ -16,8 +16,6 @@ HumanHandoffStatus = Literal[
 
 
 class HumanHandoffView(BaseModel):
-    """人工接管队列和会话详情的统一视图。"""
-
     id: str
     tenant_id: str
     user_id: str

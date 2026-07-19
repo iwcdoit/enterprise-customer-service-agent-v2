@@ -7,8 +7,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-# 直接运行 scripts/*.py 时，Python 默认不一定知道 `src` 是源码根目录。
-# 把 `src` 临时加入 import 路径后，下面才能导入 customer_service_app。
 
 from customer_service_app.core.config import get_settings  # noqa: E402
 

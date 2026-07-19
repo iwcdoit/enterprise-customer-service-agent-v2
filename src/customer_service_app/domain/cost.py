@@ -9,7 +9,7 @@ TenantTier = Literal["basic", "standard", "premium"]
 
 
 class CostStrategy(BaseModel):
-    """Runtime strategy selected for one tenant request."""
+    """Runtime strategy selected for a tenant and a request."""
 
     tenant_id: str
     tier: TenantTier
@@ -21,8 +21,8 @@ class CostStrategy(BaseModel):
     degraded: bool = False
     budget_tokens: int = 0
     used_tokens: int = 0
-    remaining_tokens: int = 0
     usage_ratio: float = 0.0
+    remaining_tokens: int = 0
     usage_percent: float = 0.0
     budget_warning: bool = False
     budget_exceeded: bool = False
@@ -30,7 +30,7 @@ class CostStrategy(BaseModel):
 
 
 class TokenUsage(BaseModel):
-    """Token usage normalized from an LLM provider response."""
+    """Token usage returned by an LLM provider."""
 
     prompt_tokens: int = 0
     completion_tokens: int = 0

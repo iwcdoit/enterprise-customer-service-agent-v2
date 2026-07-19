@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.2
     llm_timeout_seconds: int = 60
 
-    embedding_provider: str = "openai_compatible"
+    embedding_provider: str = "ollama"
     embedding_api_key: str = ""
     embedding_base_url: str = ""
     embedding_model: str = ""
@@ -48,20 +48,22 @@ class Settings(BaseSettings):
     semantic_cache_ttl_seconds: int = 3600
     semantic_cache_threshold: float = 0.90
 
+    semantic_rewrite_enabled: bool = True
+    semantic_rewrite_min_confidence: float = 0.55
+    semantic_rewrite_max_retries: int = 1
+
     rag_enabled: bool = True
     vector_store_provider: str = "qdrant"
     qdrant_url: str = ""
     qdrant_api_key: str = ""
     qdrant_collection: str = "customer_service_knowledge"
-    milvus_uri: str = ""
+    milvus_uri: str = "http://127.0.0.1:19530"
     milvus_token: str = ""
+    milvus_db_name: str = "default"
     milvus_collection: str = "customer_service_knowledge"
+    milvus_metric_type: str = "COSINE"
     rag_top_k: int = 5
     rag_score_threshold: float = 0.35
-    knowledge_chunk_max_chars: int = 900
-    knowledge_chunk_min_chars: int = 160
-    knowledge_chunk_overlap_chars: int = 120
-    knowledge_ingest_batch_size: int = 64
     retrieval_mode: str = "hybrid"
     hybrid_candidate_multiplier: int = 3
     hybrid_rrf_k: int = 60
@@ -80,6 +82,29 @@ class Settings(BaseSettings):
     rerank_api_key: str = ""
     rerank_model: str = ""
     rerank_timeout_seconds: int = 15
+    retrieval_quality_min_score: float = 0.35
+    retrieval_quality_min_chunks: int = 1
+
+    serpapi_key: str = ""
+    search_result_count: int = 5
+
+    v2_planning_enabled: bool = True
+    v2_hil_enabled: bool = True
+    plan_max_steps: int = 6
+    plan_max_llm_calls: int = 4
+    plan_max_tool_calls: int = 5
+    plan_parallel_execution_enabled: bool = True
+    plan_max_parallel_steps: int = 3
+    pending_action_ttl_seconds: int = 1800
+    graph_checkpointer: str = "memory"
+    graph_checkpoint_postgres_url: str = ""
+    graph_checkpoint_setup: bool = True
+    graph_durability: str = "async"
+    graph_recursion_limit: int = 32
+
+    short_term_history_turns: int = 8
+    conversation_summary_threshold_messages: int = 20
+    long_term_memory_enabled: bool = True
 
     cost_governance_enabled: bool = True
     tenant_default_tier: str = "standard"
@@ -98,29 +123,24 @@ class Settings(BaseSettings):
     premium_daily_token_budget: int = 1_500_000
     cost_warning_ratio: float = 0.8
 
-    serpapi_key: str = ""
-    search_result_count: int = 5
-
     mcp_after_sales_enabled: bool = False
     mcp_after_sales_transport: str = "streamable_http"
-    mcp_after_sales_url: str = "https://mcp-after-sales.example.com/mcp"
+    mcp_after_sales_url: str = "http://127.0.0.1:8100/mcp"
     mcp_after_sales_command: str = "python"
     mcp_after_sales_args: str = "scripts/run_after_sales_mcp_server.py"
     mcp_timeout_seconds: int = 20
     mcp_approval_signing_secret: str = ""
+    mcp_approval_token_ttl_seconds: int = 120
     mcp_approval_issuer: str = "customer-service-agent"
-    mcp_approval_token_ttl_seconds: int = 600
-    pending_action_ttl_seconds: int = 1800
 
-    planning_enabled: bool = True
-    plan_max_steps: int = 6
-    react_step_timeout_seconds: float = 20.0
-
-    graph_checkpointer: str = "memory"
-    graph_checkpoint_postgres_url: str = ""
-    graph_checkpoint_setup: bool = True
-    graph_durability: str = "async"
-    graph_recursion_limit: int = 32
+    metrics_enabled: bool = True
+    langsmith_tracing: bool = False
+    langsmith_api_key: str = ""
+    langsmith_project: str = "enterprise-customer-service-agent-v2"
+    langsmith_endpoint: str = "https://api.smith.langchain.com"
+    otel_enabled: bool = False
+    otel_service_name: str = "customer-service-agent"
+    otel_exporter_otlp_endpoint: str = "http://127.0.0.1:4318"
 
     jwt_secret_key: str = ""
     jwt_algorithm: str = "HS256"

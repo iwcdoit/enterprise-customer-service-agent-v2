@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import json
+from asyncio import wait_for
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass
+from typing import Any, Literal
+
+from jsonschema import ValidationError as JsonSchemaValidationError
+from jsonschema import validate as validate_json_schema
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from customer_service_app.core.exceptions import AppError
 from customer_service_app.infrastructure.search.serpapi_client import SerpApiSearchClient
-
-if TYPE_CHECKING:
-    from customer_service_app.services.business_gateway import BusinessGateway
 
 
 @dataclass(slots=True)
@@ -27,12 +28,15 @@ class ToolExecutionContext:
     conversation_id: str | None
     session: AsyncSession
     search_client: SerpApiSearchClient
-    business_gateway: BusinessGateway | None = None
-    confirmed_tools: set[str] = field(default_factory=set)
-
+    business_gateway: Any | None = None
+    approval_token: str | None = None
+    langgraph_thread_id: str | None = None
+    confirmation_id: str | None = None
 
 ToolHandler = Callable[[dict[str, Any], ToolExecutionContext], Awaitable[dict[str, Any]]]
 """Tool handler signature: async function receiving arguments and execution context."""
+
+RiskLevel = Literal["low", "medium", "high"]
 
 
 @dataclass(slots=True)
@@ -47,7 +51,13 @@ class ToolSpec:
     description: str
     parameters: dict[str, Any]
     handler: ToolHandler
+    read_only: bool = True
     requires_confirmation: bool = False
+    risk_level: RiskLevel = "low"
+    timeout_seconds: int = 8
+    idempotent: bool = True
+    action_type: str = "tool"
+    parallel_safe: bool = False
 
     def as_openai_tool(self) -> dict[str, Any]:
         """把内部 ToolSpec 转成 OpenAI-compatible tools 格式。
@@ -91,18 +101,23 @@ class ToolRegistry:
 
         return [tool.as_openai_tool() for tool in self._tools.values()]
 
-    def names(self) -> list[str]:
-        """Return registered tool names."""
+    def get(self, name: str) -> ToolSpec | None:
+        """Return tool metadata by name."""
 
-        return list(self._tools.keys())
+        return self._tools.get(name)
 
     def require(self, name: str) -> ToolSpec:
-        """Return a registered tool or raise a business error."""
+        """Return tool metadata or raise a business error."""
 
-        tool = self._tools.get(name)
+        tool = self.get(name)
         if tool is None:
             raise AppError(f"Unknown tool: {name}", code="unknown_tool", status_code=400)
         return tool
+
+    def names(self) -> set[str]:
+        """Return all registered tool names."""
+
+        return set(self._tools)
 
     async def execute(
         self,
@@ -117,32 +132,35 @@ class ToolRegistry:
         解析 JSON 参数，然后调用对应 handler。
         """
 
-        tool = self._tools.get(name)
-        if tool is None:
-            raise AppError(f"Unknown tool: {name}", code="unknown_tool", status_code=400)
+        tool = self.require(name)
         try:
             arguments = json.loads(arguments_json or "{}")
         except json.JSONDecodeError as exc:
+            raise AppError(f"Invalid tool arguments for {name}: {arguments_json}") from exc
+        self._validate_arguments(tool, arguments)
+        return await wait_for(tool.handler(arguments, context), timeout=tool.timeout_seconds)
+
+    async def execute_dict(
+        self,
+        *,
+        name: str,
+        arguments: dict[str, Any],
+        context: ToolExecutionContext,
+    ) -> dict[str, Any]:
+        """Execute a tool with already parsed arguments."""
+
+        tool = self.require(name)
+        self._validate_arguments(tool, arguments)
+        return await wait_for(tool.handler(arguments, context), timeout=tool.timeout_seconds)
+
+    @staticmethod
+    def _validate_arguments(tool: ToolSpec, arguments: dict[str, Any]) -> None:
+        """Treat model/MCP arguments as untrusted input before executing a handler."""
+        try:
+            validate_json_schema(instance=arguments, schema=tool.parameters)
+        except JsonSchemaValidationError as exc:
             raise AppError(
-                f"Invalid tool arguments for {name}: {arguments_json}",
-                code="invalid_tool_arguments",
+                f"Invalid arguments for tool {tool.name}: {exc.message}",
+                code="tool_arguments_invalid",
                 status_code=400,
             ) from exc
-        if not isinstance(arguments, dict):
-            raise AppError(
-                "Tool arguments must be a JSON object",
-                code="invalid_tool_arguments",
-                status_code=400,
-            )
-
-        if tool.requires_confirmation:
-            confirmed_tools = context.confirmed_tools if context is not None else set()
-            if name not in confirmed_tools:
-                return {
-                    "requires_confirmation": True,
-                    "tool_name": name,
-                    "arguments": arguments,
-                    "message": "该操作需要用户或人工客服确认后再执行。",
-                }
-
-        return await tool.handler(arguments, context)

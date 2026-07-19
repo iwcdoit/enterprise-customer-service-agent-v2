@@ -101,10 +101,11 @@ class SupportTicket(Base):
 
 
 class HumanHandoffSession(Base):
-    """人工客服接管会话的持久化状态。
+    """Durable ownership state for a conversation handled by a human agent.
 
-    LangGraph HIL 只负责确认“是否转人工”这次高风险动作。人工处理可能持续数小时，
-    因此不能一直占用 Graph 调用，而要把会话所有权和处理进度独立保存到数据库。
+    LangGraph HIL only confirms the handoff operation. The potentially long-running human
+    conversation is tracked here so it survives process restarts and does not keep a graph
+    invocation suspended for hours or days.
     """
 
     __tablename__ = "human_handoff_sessions"
@@ -117,9 +118,7 @@ class HumanHandoffSession(Base):
     )
     support_ticket_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     origin_thread_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
-    status: Mapped[str] = mapped_column(
-        String(32), default="waiting_assignment", index=True
-    )
+    status: Mapped[str] = mapped_column(String(32), default="waiting_assignment", index=True)
     queue_name: Mapped[str] = mapped_column(String(64), default="general", index=True)
     priority: Mapped[str] = mapped_column(String(32), default="normal", index=True)
     reason: Mapped[str] = mapped_column(Text)
@@ -144,12 +143,11 @@ class HumanHandoffSession(Base):
         Index("idx_handoff_queue", "tenant_id", "status", "priority", "requested_at"),
         Index("idx_handoff_conversation", "tenant_id", "conversation_id", "status"),
     )
-    # SQLAlchemy 更新时会把旧 version 放进 WHERE；并发修改会触发 StaleDataError。
     __mapper_args__ = {"version_id_col": version}
 
 
 class PendingAction(Base):
-    """High-risk tool action waiting for user or operator confirmation."""
+    """Operation waiting for user confirmation before a side effect is executed."""
 
     __tablename__ = "pending_actions"
 
@@ -157,24 +155,76 @@ class PendingAction(Base):
     tenant_id: Mapped[str] = mapped_column(String(64), index=True)
     user_id: Mapped[str] = mapped_column(String(64), index=True)
     conversation_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    thread_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    confirmation_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
-    tool_name: Mapped[str] = mapped_column(String(128), index=True)
+    langgraph_thread_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    action_type: Mapped[str] = mapped_column(String(64))
+    tool_name: Mapped[str] = mapped_column(String(128))
     arguments_json: Mapped[dict] = mapped_column(JSON, default=dict)
-    result_json: Mapped[dict] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
-    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
-    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    risk_level: Mapped[str] = mapped_column(String(32), default="low")
+    confirmation_prompt: Mapped[str] = mapped_column(Text)
+    expire_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    execution_result_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    idempotency_key: Mapped[str] = mapped_column(String(200), unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
     __table_args__ = (
-        Index("idx_pending_action_owner", "tenant_id", "user_id", "status"),
+        Index("idx_pending_action_owner", "tenant_id", "user_id", "conversation_id"),
+    )
+
+
+class ConversationSummary(Base):
+    """Compressed summary for older messages in a long conversation."""
+
+    __tablename__ = "conversation_summaries"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=new_id)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    conversation_id: Mapped[str] = mapped_column(String(64), index=True)
+    summary: Mapped[str] = mapped_column(Text)
+    message_start_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    message_end_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class CustomerMemory(Base):
+    """Long-term memory storing stable user facts and unfinished tasks."""
+
+    __tablename__ = "customer_memories"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=new_id)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    memory_type: Mapped[str] = mapped_column(String(32), index=True)
+    memory_key: Mapped[str] = mapped_column(String(128), index=True)
+    memory_value_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    confidence: Mapped[float] = mapped_column(Float, default=1.0)
+    source: Mapped[str] = mapped_column(String(64), default="agent")
+    verification_status: Mapped[str] = mapped_column(String(32), default="verified_tool", index=True)
+    evidence_json: Mapped[list] = mapped_column(JSON, default=list)
+    sensitivity: Mapped[str] = mapped_column(String(32), default="internal")
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_customer_memory_lookup", "tenant_id", "user_id", "memory_type", "memory_key"),
     )
 
 
 class TenantUsageDaily(Base):
-    """Daily LLM usage for tenant-level cost governance."""
+    """Daily LLM and embedding usage for tenant-level cost governance."""
 
     __tablename__ = "tenant_usage_daily"
 
@@ -182,6 +232,7 @@ class TenantUsageDaily(Base):
     tenant_id: Mapped[str] = mapped_column(String(64), index=True)
     usage_date: Mapped[date] = mapped_column(Date, index=True)
     llm_calls: Mapped[int] = mapped_column(Integer, default=0)
+    embedding_calls: Mapped[int] = mapped_column(Integer, default=0)
     prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
     total_tokens: Mapped[int] = mapped_column(Integer, default=0)
@@ -192,3 +243,39 @@ class TenantUsageDaily(Base):
     )
 
     __table_args__ = (Index("idx_tenant_usage_day", "tenant_id", "usage_date", unique=True),)
+
+
+class AgentRun(Base):
+    """One top-level Agent request execution."""
+
+    __tablename__ = "agent_runs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=new_id)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    conversation_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    request_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="running")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    total_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class AgentRunStep(Base):
+    """Detailed execution step for an Agent run."""
+
+    __tablename__ = "agent_run_steps"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=new_id)
+    run_id: Mapped[str] = mapped_column(String(64), index=True)
+    stage: Mapped[str] = mapped_column(String(64), index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(32))
+    input_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    output_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

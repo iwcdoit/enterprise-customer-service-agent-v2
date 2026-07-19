@@ -86,37 +86,23 @@ def test_approval_token_binds_tool_tenant_user_and_confirmation_id() -> None:
 
 
 @pytest.mark.asyncio
-async def test_business_gateway_adds_approval_token_for_mcp_write_tool() -> None:
-    settings = Settings(
-        mcp_approval_signing_secret="test-secret",
-        mcp_approval_issuer="test-issuer",
-        mcp_approval_token_ttl_seconds=60,
-    )
+async def test_business_gateway_forwards_hil_approval_token_to_mcp() -> None:
     mcp_client = FakeMCPClient()
     gateway = BusinessGateway(
-        settings=settings,
-        session=object(),  # type: ignore[arg-type]
+        object(),  # type: ignore[arg-type]
         mcp_client=mcp_client,  # type: ignore[arg-type]
     )
 
-    await gateway.create_refund_ticket(
+    await gateway.create_refund_case(
         tenant_id="tenant-a",
         user_id="u001",
         conversation_id="c001",
         order_id="o001",
         reason="broken",
         priority="normal",
+        approval_token="hil-approved-token",
     )
 
     assert mcp_client.calls[0]["name"] == "create_refund_case"
     arguments = mcp_client.calls[0]["arguments"]
-    assert arguments["approval_token"]
-    claims = jwt.decode(
-        arguments["approval_token"],
-        "test-secret",
-        algorithms=["HS256"],
-        issuer="test-issuer",
-    )
-    assert claims["tenant_id"] == "tenant-a"
-    assert claims["sub"] == "u001"
-    assert claims["tool_name"] == "create_refund_case"
+    assert arguments["approval_token"] == "hil-approved-token"

@@ -1,2 +1,1 @@
-"""MCP integration adapters."""
-
+"""MCP integration boundary for future business tool servers."""

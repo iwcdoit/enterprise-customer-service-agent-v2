@@ -14,17 +14,14 @@ _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 
 
 def get_engine() -> AsyncEngine:
-    """获取全局数据库引擎。
-
-    Engine 可以理解成数据库连接池管理器，不是一条具体连接。
-    `global _engine` 表示这个函数会修改模块级变量 `_engine`。
-    """
+    """获取进程级异步数据库引擎。"""
     global _engine
     if _engine is None:
         settings = get_settings()
         database_url = settings.require("DATABASE_URL", settings.database_url)
         _engine = create_async_engine(database_url, pool_pre_ping=True, pool_recycle=1800)
     return _engine
+
 
 
 def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
@@ -36,30 +33,23 @@ def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
 
 
 async def get_db_session() -> AsyncIterator[AsyncSession]:
-    """FastAPI 依赖注入使用的数据库会话。
-
-    这个函数里使用 `yield`，FastAPI 会在请求开始时拿到 session，
-    请求结束后自动继续执行退出逻辑，释放连接。
-    """
+    """提供请求级数据库会话。"""
     async with get_sessionmaker()() as session:
         yield session
 
 
 @asynccontextmanager
 async def session_context() -> AsyncIterator[AsyncSession]:
-    """脚本中使用的数据库会话上下文。
+    """提供脚本和后台任务使用的数据库会话。"""
 
-    `@asynccontextmanager` 可以把带 `yield` 的异步函数包装成：
-    `async with session_context() as session:` 这种用法。
-    """
     async with get_sessionmaker()() as session:
         yield session
 
 
 async def create_db_schema() -> None:
-    """根据 ORM 模型创建数据库表，主要用于本地开发和环境初始化。"""
-    async with get_engine().begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    """根据 ORM 模型创建数据库表，主要用于本地开发和演示。"""
+    async with get_engine().begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
 
 
 async def dispose_engine() -> None:

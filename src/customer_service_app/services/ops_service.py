@@ -74,7 +74,7 @@ class OpsService:
                 actions=[],
             )
         actions = await ConfirmationService(
-            self._session,
+            session=self._session,
             settings=self._settings,
         ).list_pending_actions(
             tenant_id=tenant_id,

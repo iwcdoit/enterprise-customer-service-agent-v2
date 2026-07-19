@@ -55,41 +55,68 @@ class RedisSemanticCache:
         2. 扫描当前租户、当前用户的历史问题向量。
         3. 计算余弦相似度。
         4. 超过阈值时返回相似度最高的缓存答案。
+
+        理解点：
+        tenantA:user001:vec:abc123 - 存的是问题的 embedding 向量：[0.012, -0.087, 0.334, ...]
+        tenantA:user001:answer:abc123 - 当时大模型生成的答案
+        tenantA:user001:meta:abc123 - 排查、trace、运营分析，不是回答正文：{"conversation_id": "xxx","model": "qwen-plus","source": "semantic_cache"}
+
         """
         query_vector = await self._embedding_client.embed_query(question)
+
         prefix = self._prefix(tenant_id, user_id)
+
         best: SemanticCacheEntry | None = None
 
-        async for key in self.redis.scan_iter(match=f"{prefix}:vec:*", count=100):
-            raw_vector = await self.redis.get(key)
+        redis_client = self.redis
+
+        async for key in redis_client.scan_iter(match=f"{prefix}:vec:*", count=100):
+            raw_vector = await redis_client.get(key)
+
             if not raw_vector:
                 continue
+
             try:
                 cached_vector = json.loads(raw_vector)
-            except (TypeError, json.JSONDecodeError):
+            except json.JSONDecodeError:
                 continue
+
             if not isinstance(cached_vector, list):
                 continue
+
             similarity = self._cosine(query_vector, cached_vector)
+
             if similarity < self._settings.semantic_cache_threshold:
                 continue
 
             cache_id = key.split(":")[-1]
-            answer = await self.redis.get(f"{prefix}:answer:{cache_id}")
-            metadata_raw = await self.redis.get(f"{prefix}:meta:{cache_id}")
+
+            answer = await redis_client.get(f"{prefix}:answer:{cache_id}")
+
             if not answer:
                 continue
-            try:
-                metadata = json.loads(metadata_raw or "{}")
-            except (TypeError, json.JSONDecodeError):
-                metadata = {}
+
+            raw_metadata = await redis_client.get(f"{prefix}:meta:{cache_id}")
+
+            metadata: dict[str, Any] = {}
+
+            if raw_metadata:
+                try:
+                    parsed_metadata = json.loads(raw_metadata)
+                except json.JSONDecodeError:
+                    parsed_metadata = {}
+                if isinstance(parsed_metadata, dict):
+                    metadata = parsed_metadata
+
             entry = SemanticCacheEntry(
                 answer=answer,
                 similarity=similarity,
-                metadata=metadata if isinstance(metadata, dict) else {},
+                metadata=metadata,
             )
+
             if best is None or entry.similarity > best.similarity:
                 best = entry
+
         return best
 
     async def update(
@@ -102,40 +129,68 @@ class RedisSemanticCache:
         metadata: dict[str, Any] | None = None,
     ) -> None:
         """把本次问题、答案、向量写入 Redis，供下次相似问题复用。"""
+        normalized_question = question.strip().lower()
+
+        if not normalized_question or not answer:
+            return
+
         vector = await self._embedding_client.embed_query(question)
+
         prefix = self._prefix(tenant_id, user_id)
-        cache_id = hashlib.sha256(question.strip().lower().encode("utf-8")).hexdigest()
+
+        cache_id = hashlib.sha256(normalized_question.encode("utf-8")).hexdigest()
+
         ttl = self._settings.semantic_cache_ttl_seconds
-        await self.redis.set(f"{prefix}:vec:{cache_id}", json.dumps(vector), ex=ttl)
-        await self.redis.set(f"{prefix}:answer:{cache_id}", answer, ex=ttl)
-        await self.redis.set(f"{prefix}:meta:{cache_id}", json.dumps(metadata or {}), ex=ttl)
+
+        redis_client = self.redis
+
+        vector_key = f"{prefix}:vec:{cache_id}"
+
+        answer_key = f"{prefix}:answer:{cache_id}"
+
+        metadata_key = f"{prefix}:meta:{cache_id}"
+
+        await redis_client.set(vector_key, json.dumps(vector), ex=ttl)
+
+        await redis_client.set(answer_key, answer, ex=ttl)
+
+        await redis_client.set(
+            metadata_key,
+            json.dumps(metadata or {}, ensure_ascii=False),
+            ex=ttl,
+        )
 
     def _prefix(self, tenant_id: str, user_id: str) -> str:
         """生成 Redis key 前缀。
 
         这里对 tenant_id/user_id 做 hash，避免 Redis key 里直接暴露原始业务 id。
         """
-        tenant_hash = hashlib.sha1(tenant_id.encode("utf-8")).hexdigest()[:12]
-        user_hash = hashlib.sha1(user_id.encode("utf-8")).hexdigest()[:12]
-        return f"semantic_cache:{tenant_hash}:{user_hash}"
+        tenant_hash = tenant_id[:12]
+        user_hash = user_id[:12]
+        return f"{tenant_hash}:{user_hash}"
 
     @staticmethod
     def _cosine(left: list[float], right: list[float]) -> float:
         """计算两个向量的余弦相似度。
 
         结果越接近 1，表示语义越接近；越接近 0，表示关系越弱。
+        两个向量必须来自相同 embedding 模型且维度一致。
         """
-        if not left or not right or len(left) != len(right):
+        a = np.asarray(left, dtype=np.float32)
+
+        b = np.asarray(right, dtype=np.float32)
+
+        if a.shape != b.shape:
             return 0.0
-        a = np.array(left, dtype=np.float32)
-        b = np.array(right, dtype=np.float32)
+
         denominator = float(np.linalg.norm(a) * np.linalg.norm(b))
-        if denominator == 0:
+
+        if denominator == 0.0:
             return 0.0
+
         return float(np.dot(a, b) / denominator)
 
     async def close(self) -> None:
-        """关闭语义缓存的 Redis 连接池。"""
-
-        if self._redis is not None:
-            await self._redis.aclose()
+        """Close the shared Redis connection pool."""
+        if self.redis is not None:
+            await self.redis.close()

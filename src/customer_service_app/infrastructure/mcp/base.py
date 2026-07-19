@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class MCPToolContract(BaseModel):
-    """Business tool metadata discovered from an MCP server."""
+    """Business tool metadata that can be imported from an MCP server."""
 
     name: str
     description: str
@@ -18,13 +18,12 @@ class MCPToolContract(BaseModel):
 
 
 class MCPBusinessClient(Protocol):
-    """Minimal protocol used by the application to call business MCP services."""
+    """Protocol for a future MCP client implementation."""
 
     async def list_tools(self) -> list[MCPToolContract]:
-        """List tools exposed by the MCP service."""
+        """List tools exposed by a business MCP server."""
         ...
 
     async def call_tool(self, *, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Call one MCP tool by name."""
         ...
-

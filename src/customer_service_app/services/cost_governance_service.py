@@ -11,68 +11,83 @@ from customer_service_app.infrastructure.db.repositories import UsageRepository
 
 
 class CostGovernanceService:
-    """Choose tenant-aware runtime strategy without hard-blocking traffic."""
+    """Tenant-tier and usage-aware cost governance.
+
+    The service does not reject normal paid traffic when a budget is exceeded. Instead it degrades
+    model choice, RAG breadth, and memory window according to tenant tier and daily token usage.
+    """
 
     def __init__(self, *, settings: Settings, session: AsyncSession | None = None):
         self._settings = settings
         self._repo = UsageRepository(session) if session is not None else None
 
-    async def choose_strategy(self, *, tenant_id: str, used_tokens: int | None = None) -> CostStrategy:
-        """Choose model, RAG breadth, and memory window for one tenant request."""
+    async def choose_strategy(
+        self,
+        *,
+        tenant_id: str,
+        used_tokens: int | None = None,
+    ) -> CostStrategy:
+        """Choose a tenant-aware runtime strategy."""
         tier = self._resolve_tenant_tier(tenant_id)
-        if used_tokens is None:
-            used_tokens = 0
-            if self._settings.cost_governance_enabled and self._repo is not None:
-                usage = await self._repo.get_today_usage(tenant_id=tenant_id)
-                used_tokens = usage.total_tokens if usage else 0
-        used_tokens = max(int(used_tokens), 0)
+
+        resolved_used_tokens = max(int(used_tokens or 0), 0)
+
         budget = self._budget_for_tier(tier)
-        usage_ratio = self._usage_ratio(used_tokens=used_tokens, budget_tokens=budget)
-        strategy = self._base_strategy(
+
+        if used_tokens is None and self._settings.cost_governance_enabled and self._repo is not None:
+            usage = await self._repo.get_today_usage(tenant_id=tenant_id)
+            if usage is not None:
+                resolved_used_tokens = usage.total_tokens
+
+        usage_ratio = self._usage_ratio(
+            used_tokens=resolved_used_tokens,
+            budget_tokens=budget,
+        )
+
+        base = self._base_strategy(
             tenant_id=tenant_id,
             tier=tier,
             budget_tokens=budget,
-            used_tokens=used_tokens,
+            used_tokens=resolved_used_tokens,
             usage_ratio=usage_ratio,
         )
 
         if not self._settings.cost_governance_enabled:
-            return strategy
+            return base
         if usage_ratio >= 1.0:
-            return self._hard_degrade(strategy, reason="daily_budget_exceeded")
-        if usage_ratio >= self._warning_ratio():
-            return self._soft_degrade(strategy, reason="daily_budget_warning")
-        return strategy
+            return self._hard_degrade(base, reason="daily_budget_exceeded")
+        if usage_ratio >= self._settings.cost_warning_ratio:
+            return self._soft_degrade(base, reason="daily_budget_warning")
+        return base
 
     def explain_strategy(self, strategy: CostStrategy) -> list[str]:
-        """Return operator-facing notes for the selected cost strategy."""
+        """生成给运营人员阅读的策略说明，不暴露密钥等配置。"""
         notes = [
             (
-                f"租户等级 {strategy.tier}，本次使用模型 {strategy.model or 'default'}，"
+                f"租户等级 {strategy.tier}，模型 {strategy.model}，"
                 f"RAG top_k={strategy.rag_top_k}，历史窗口={strategy.history_turns}"
             ),
             (
                 f"今日 token 用量 {strategy.used_tokens}/{strategy.budget_tokens} "
-                f"({strategy.usage_percent}%)，剩余额度约 {strategy.remaining_tokens}"
+                f"({strategy.usage_percent}%)，剩余 {strategy.remaining_tokens}"
             ),
         ]
         if strategy.budget_exceeded:
-            notes.append("当前租户已超过日预算，系统会启用强降级策略但不直接拒绝服务")
+            notes.append("已超过日预算，启用强降级但不拒绝服务")
         elif strategy.budget_warning:
-            notes.append("当前租户已接近日预算，系统会优先选择更低成本的运行策略")
+            notes.append("已接近日预算，优先使用低成本策略")
         if strategy.degraded:
-            notes.append(f"已触发降级：{strategy.degradation_reason}")
+            notes.append(f"降级原因：{strategy.degradation_reason}")
         if strategy.cache_first:
-            notes.append("当前策略优先尝试语义缓存，减少重复问题的模型调用")
+            notes.append("当前策略优先查询语义缓存")
         if strategy.use_rerank:
-            notes.append("当前策略允许使用 rerank 提升知识召回质量")
+            notes.append("当前策略允许使用 rerank")
         return notes
 
+
     async def record_llm_usage(self, *, tenant_id: str, usage: TokenUsage) -> None:
-        """Persist LLM token usage for daily accounting."""
+        """Persist token usage for daily cost accounting."""
         if not self._settings.cost_governance_enabled or self._repo is None:
-            return
-        if usage.total_tokens <= 0:
             return
         await self._repo.add_llm_usage(
             tenant_id=tenant_id,
@@ -81,11 +96,17 @@ class CostGovernanceService:
             total_tokens=usage.total_tokens,
         )
 
+
     def _resolve_tenant_tier(self, tenant_id: str) -> TenantTier:
-        tier_map = self._parse_tier_map()
-        return self._normalize_tier(tier_map.get(tenant_id, self._settings.tenant_default_tier))
+        """Resolve tenant tier from env mapping, falling back to default tier."""
+        tenant_map = self._parse_tier_map()
+        tenant_level = tenant_map.get(tenant_id)
+        if tenant_level is None:
+            tenant_level = self._settings.tenant_default_tier
+        return self._normalize_tier(tenant_level)
 
     def _parse_tier_map(self) -> dict[str, str]:
+        """Parse TENANT_TIER_MAP JSON, ignoring invalid configuration safely."""
         raw = self._settings.tenant_tier_map
         if not raw.strip():
             return {}
@@ -106,6 +127,7 @@ class CostGovernanceService:
         used_tokens: int,
         usage_ratio: float,
     ) -> CostStrategy:
+        """Build normal strategy for a tenant tier."""
         budget_state = self._budget_state(
             budget_tokens=budget_tokens,
             used_tokens=used_tokens,
@@ -117,32 +139,38 @@ class CostGovernanceService:
                 tier=tier,
                 model=self._model_for("basic"),
                 rag_top_k=self._settings.basic_tenant_rag_top_k,
-                history_turns=4,
+                history_turns=max(self._settings.degraded_history_turns,4),
+                use_rerank=False,
                 cache_first=True,
                 budget_tokens=budget_tokens,
                 used_tokens=used_tokens,
                 usage_ratio=usage_ratio,
                 **budget_state,
             )
+
         if tier == "premium":
             return CostStrategy(
                 tenant_id=tenant_id,
                 tier=tier,
                 model=self._model_for("premium"),
                 rag_top_k=self._settings.premium_tenant_rag_top_k,
-                history_turns=10,
+                history_turns=max(self._settings.short_term_history_turns, 12),
                 use_rerank=True,
+                cache_first=False,
                 budget_tokens=budget_tokens,
                 used_tokens=used_tokens,
                 usage_ratio=usage_ratio,
                 **budget_state,
             )
+
         return CostStrategy(
             tenant_id=tenant_id,
-            tier="standard",
+            tier=tier,
             model=self._model_for("standard"),
             rag_top_k=self._settings.standard_tenant_rag_top_k,
-            history_turns=8,
+            history_turns=self._settings.short_term_history_turns,
+            use_rerank=False,
+            cache_first=True,
             budget_tokens=budget_tokens,
             used_tokens=used_tokens,
             usage_ratio=usage_ratio,
@@ -150,27 +178,30 @@ class CostGovernanceService:
         )
 
     def _soft_degrade(self, strategy: CostStrategy, *, reason: str) -> CostStrategy:
+        """Degrade one level when tenant approaches daily budget."""
         if strategy.tier == "premium":
             strategy.model = self._model_for("standard")
             strategy.rag_top_k = self._settings.standard_tenant_rag_top_k
-            strategy.history_turns = 8
-            strategy.use_rerank = False
+            strategy.history_turns = self._settings.short_term_history_turns
+
         elif strategy.tier == "standard":
             strategy.model = self._model_for("basic")
             strategy.rag_top_k = self._settings.basic_tenant_rag_top_k
             strategy.history_turns = 4
-            strategy.cache_first = True
+
         else:
             strategy.model = self._model_for("degraded")
             strategy.rag_top_k = self._settings.degraded_rag_top_k
             strategy.history_turns = self._settings.degraded_history_turns
-        strategy.cache_first = True
+
         strategy.use_rerank = False
+        strategy.cache_first = True
         strategy.degraded = True
         strategy.degradation_reason = reason
         return strategy
 
     def _hard_degrade(self, strategy: CostStrategy, *, reason: str) -> CostStrategy:
+        """Apply strong degradation after budget is exceeded without hard-blocking service."""
         strategy.model = self._model_for("degraded")
         strategy.rag_top_k = self._settings.degraded_rag_top_k
         strategy.history_turns = self._settings.degraded_history_turns
@@ -181,6 +212,7 @@ class CostGovernanceService:
         return strategy
 
     def _model_for(self, tier: str) -> str:
+        """Return configured model for a tier, falling back to LLM_MODEL."""
         model_by_tier = {
             "basic": self._settings.llm_model_basic,
             "standard": self._settings.llm_model_standard,
@@ -190,10 +222,12 @@ class CostGovernanceService:
         return model_by_tier.get(tier, "") or self._settings.llm_model
 
     def _budget_for_tier(self, tier: TenantTier) -> int:
+        """Return daily token budget for a tenant tier."""
         if tier == "basic":
             return self._settings.basic_daily_token_budget
         if tier == "premium":
             return self._settings.premium_daily_token_budget
+
         return self._settings.standard_daily_token_budget
 
     def _budget_state(
@@ -203,11 +237,10 @@ class CostGovernanceService:
         used_tokens: int,
         usage_ratio: float,
     ) -> dict[str, int | float | bool]:
-        warning_ratio = self._warning_ratio()
         return {
             "remaining_tokens": max(budget_tokens - used_tokens, 0),
             "usage_percent": round(usage_ratio * 100, 2),
-            "budget_warning": usage_ratio >= warning_ratio,
+            "budget_warning": usage_ratio >= self._warning_ratio(),
             "budget_exceeded": usage_ratio >= 1.0,
         }
 
@@ -220,8 +253,11 @@ class CostGovernanceService:
     def _warning_ratio(self) -> float:
         return min(max(self._settings.cost_warning_ratio, 0.0), 1.0)
 
+
     @staticmethod
     def _normalize_tier(value: str) -> TenantTier:
-        if value in {"basic", "standard", "premium"}:
-            return cast(TenantTier, value)
-        return "standard"
+        """Normalize untrusted config into a supported tier."""
+        supported_tiers = {"basic", "standard", "premium"}
+        if value not in supported_tiers:
+            return cast(TenantTier, "standard")
+        return cast(TenantTier, value)

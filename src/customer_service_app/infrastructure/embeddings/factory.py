@@ -10,11 +10,7 @@ from customer_service_app.infrastructure.embeddings.openai_compatible import (
 
 
 def build_embedding_client(settings: Settings) -> EmbeddingClient:
-    """根据配置创建 Embedding 客户端。
-
-    这是工厂方法，类似 Java 里常见的 `EmbeddingClientFactory.create(settings)`。
-    上层业务只依赖 `EmbeddingClient` 接口，不需要关心底层模型服务供应商。
-    """
+    """根据配置创建 Embedding 客户端。"""
     provider = settings.embedding_provider.lower()
     if provider == "ollama":
         return OllamaEmbeddingClient(settings)

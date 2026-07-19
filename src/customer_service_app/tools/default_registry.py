@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 from customer_service_app.services.tool_registry import ToolRegistry
+from customer_service_app.tools.after_sales_tools import (
+    COMPENSATION_CASE_TOOL,
+    EXCHANGE_CASE_TOOL,
+    REFUND_CASE_TOOL,
+)
+from customer_service_app.tools.handoff_tools import HUMAN_HANDOFF_CASE_TOOL
 from customer_service_app.tools.order_tools import (
-    HUMAN_HANDOFF_TOOL,
+    CUSTOMER_PROFILE_TOOL,
+    LOGISTICS_STATUS_TOOL,
     ORDER_STATUS_TOOL,
-    REFUND_TICKET_TOOL,
+    PRICE_PROTECTION_TOOL,
 )
 from customer_service_app.tools.search_tools import WEB_SEARCH_TOOL
 
@@ -20,7 +27,12 @@ def build_default_tool_registry() -> ToolRegistry:
     """
     registry = ToolRegistry()
     registry.register(ORDER_STATUS_TOOL)
-    registry.register(REFUND_TICKET_TOOL)
-    registry.register(HUMAN_HANDOFF_TOOL)
+    registry.register(LOGISTICS_STATUS_TOOL)
+    registry.register(PRICE_PROTECTION_TOOL)
+    registry.register(CUSTOMER_PROFILE_TOOL)
+    registry.register(REFUND_CASE_TOOL)
+    registry.register(COMPENSATION_CASE_TOOL)
+    registry.register(EXCHANGE_CASE_TOOL)
+    registry.register(HUMAN_HANDOFF_CASE_TOOL)
     registry.register(WEB_SEARCH_TOOL)
     return registry

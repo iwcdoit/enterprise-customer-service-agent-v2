@@ -8,10 +8,10 @@ from customer_service_app.infrastructure.embeddings.base import EmbeddingClient
 
 
 class OllamaEmbeddingClient(EmbeddingClient):
-    """Embedding client for a local-compatible HTTP embedding endpoint."""
+    """Ollama Embedding 客户端。"""
 
     def __init__(self, settings: Settings):
-        """保存配置，请求时用 httpx 创建临时 HTTP 客户端。"""
+        """保存配置，Ollama 每次请求时用 httpx 创建临时 HTTP 客户端。"""
         self._settings = settings
 
     async def embed_query(self, text: str) -> list[float]:
@@ -20,11 +20,7 @@ class OllamaEmbeddingClient(EmbeddingClient):
         return vectors[0]
 
     async def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        """批量调用 embedding 接口。
-
-        `async with httpx.AsyncClient(...) as client` 是异步上下文管理器，
-        类似 Java `try-with-resources`：代码块结束后自动释放连接资源。
-        """
+        """批量调用 Ollama embedding 接口。"""
         base_url = self._settings.require("EMBEDDING_BASE_URL", self._settings.embedding_base_url)
         model = self._settings.require("EMBEDDING_MODEL", self._settings.embedding_model)
         try:
@@ -39,19 +35,20 @@ class OllamaEmbeddingClient(EmbeddingClient):
             detail = _safe_error_detail(exc.response)
             if "does not support embeddings" in detail:
                 raise ExternalServiceError(
-                    "Configured embedding model does not support vector generation. "
-                    f"Current EMBEDDING_MODEL={model!r}."
+                    "Ollama 模型不支持 Embedding。"
+                    f"当前 EMBEDDING_MODEL={model!r}，请改成 bge-m3 或 nomic-embed-text "
+                    "这类 embedding 模型，并先执行：ollama pull bge-m3"
                 ) from exc
             raise ExternalServiceError(
-                f"Embedding request failed: {exc}. response={detail}"
+                f"Ollama embedding request failed: {exc}. response={detail}"
             ) from exc
         except Exception as exc:
-            raise ExternalServiceError(f"Embedding request failed: {exc}") from exc
+            raise ExternalServiceError(f"Ollama embedding request failed: {exc}") from exc
         return payload["embeddings"]
 
 
 def _safe_error_detail(response: httpx.Response) -> str:
-    """尽量从响应里提取可读的错误信息。"""
+    """尽量从 Ollama 响应里提取可读的错误信息。"""
     try:
         return str(response.json().get("error", ""))
     except Exception:

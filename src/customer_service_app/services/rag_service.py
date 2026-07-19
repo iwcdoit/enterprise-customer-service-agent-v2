@@ -5,6 +5,7 @@ import logging
 import re
 
 from customer_service_app.core.config import Settings
+from customer_service_app.domain.query_rewrite import RetrievalQuality
 from customer_service_app.domain.schemas import KnowledgeChunk
 from customer_service_app.infrastructure.embeddings.base import EmbeddingClient
 from customer_service_app.infrastructure.lexical_search.base import LexicalKnowledgeRetriever
@@ -38,6 +39,8 @@ class RagService:
         *,
         tenant_id: str,
         question: str,
+        dense_query: str | None = None,
+        sparse_query: str | None = None,
         top_k: int | None = None,
         use_rerank: bool = False,
     ) -> list[KnowledgeChunk]:
@@ -60,7 +63,7 @@ class RagService:
             dense_task = asyncio.create_task(
                 self._dense_search(
                     tenant_id=tenant_id,
-                    question=question,
+                    question=dense_query or question,
                     top_k=candidate_k,
                 )
             )
@@ -68,7 +71,7 @@ class RagService:
             lexical_task = asyncio.create_task(
                 self._lexical_retriever.search(
                     tenant_id=tenant_id,
-                    query=question,
+                    query=sparse_query or question,
                     top_k=candidate_k,
                 )
             )
@@ -108,6 +111,40 @@ class RagService:
                 # Reranker 是质量增强，不应成为客服链路单点。
                 logging.warning("rerank degraded to RRF order: %s", exc)
         return candidates[:resolved_top_k]
+
+    def evaluate_quality(
+        self,
+        *,
+        question: str,
+        chunks: list[KnowledgeChunk],
+    ) -> RetrievalQuality:
+        """对检索结果做确定性质量门禁，避免低质量上下文直接进入 LLM。"""
+        # 实时订单/物流查询本来就应走工具，RAG 为空不代表检索失败。
+        if self._route(question) == "none":
+            return RetrievalQuality(
+                sufficient=True,
+                chunk_count=0,
+                reason="business_query_routed_to_tools",
+            )
+
+        max_score = max((float(item.score or 0.0) for item in chunks), default=0.0)
+        enough_chunks = len(chunks) >= max(self._settings.retrieval_quality_min_chunks, 1)
+
+        # RRF 分数与余弦分数不同尺度，混合检索主要依据非空候选判定。
+        score_required = self._settings.retrieval_mode.lower() == "dense"
+        score_ok = (
+            max_score >= self._settings.retrieval_quality_min_score
+            if score_required
+            else bool(chunks)
+        )
+        sufficient = enough_chunks and score_ok
+        return RetrievalQuality(
+            sufficient=sufficient,
+            chunk_count=len(chunks),
+            max_score=max_score,
+            retry_recommended=not sufficient,
+            reason="retrieval_sufficient" if sufficient else "insufficient_retrieval_evidence",
+        )
 
     async def _dense_search(
         self,

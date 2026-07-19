@@ -1,36 +1,22 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from customer_service_app.api.dependencies import get_customer_service_agent
-from customer_service_app.domain.schemas import (
+from customer_service_app.domain.confirmations import (
     ConfirmationDecisionRequest,
     ConfirmationDecisionResponse,
     PendingActionView,
 )
-from customer_service_app.infrastructure.db.session import get_db_session
-from customer_service_app.services.confirmation_service import ConfirmationService
 from customer_service_app.services.customer_service_agent import CustomerServiceAgent
 
 
 router = APIRouter(prefix="/confirmations", tags=["confirmations"])
+"""人工确认接口路由组。
 
-
-@router.get("", response_model=list[PendingActionView])
-async def list_pending_actions(
-    tenant_id: str,
-    user_id: str,
-    include_expired: bool = False,
-    session: AsyncSession = Depends(get_db_session),
-) -> list[PendingActionView]:
-    """列出当前用户等待确认的高风险动作。"""
-
-    return await ConfirmationService(session).list_pending_actions(
-        tenant_id=tenant_id,
-        user_id=user_id,
-        include_expired=include_expired,
-    )
+最终路径会叠加 main.py 的 `/api/v1` 前缀：
+`/api/v1/confirmations/{confirmation_id}/approve`
+"""
 
 
 @router.get("/{confirmation_id}", response_model=PendingActionView)
@@ -40,7 +26,7 @@ async def get_confirmation(
     user_id: str,
     agent: CustomerServiceAgent = Depends(get_customer_service_agent),
 ) -> PendingActionView:
-    """读取确认详情，并校验租户和用户归属。"""
+    """Load the pending action that owns the interrupted graph thread."""
 
     return await agent.get_confirmation(
         tenant_id=tenant_id,
@@ -55,25 +41,32 @@ async def approve_confirmation(
     request: ConfirmationDecisionRequest,
     agent: CustomerServiceAgent = Depends(get_customer_service_agent),
 ) -> ConfirmationDecisionResponse:
-    """批准动作并恢复原来被 interrupt 暂停的 Graph thread。"""
+    """Resume LangGraph with an approval decision."""
 
     response = await agent.resume_confirmation(
         tenant_id=request.tenant_id,
         user_id=request.user_id,
         confirmation_id=confirmation_id,
         decision="approve",
-        reason=request.comment,
+        reason=request.reason,
     )
     return ConfirmationDecisionResponse(
         confirmation_id=confirmation_id,
-        decision="approve",
-        graph_status=response.status,
+        status="executed",
+        message="操作已确认，原 LangGraph 线程已恢复并执行完成",
+        result={
+            "tool_results": [item.model_dump() for item in response.tool_results],
+            "plan": response.plan.model_dump() if response.plan else None,
+        },
         conversation_id=response.conversation_id,
         thread_id=response.thread_id,
+        run_id=response.run_id,
         answer=response.answer,
+        graph_status=response.status,
         next_confirmation=response.pending_confirmation,
-        tool_results=response.tool_results,
-        trace=response.trace,
+        plan=response.plan.model_dump() if response.plan else None,
+        tool_results=[item.model_dump() for item in response.tool_results],
+        trace=[item.model_dump() for item in response.trace],
     )
 
 
@@ -83,23 +76,26 @@ async def reject_confirmation(
     request: ConfirmationDecisionRequest,
     agent: CustomerServiceAgent = Depends(get_customer_service_agent),
 ) -> ConfirmationDecisionResponse:
-    """拒绝动作并恢复原 Graph thread 生成取消说明。"""
+    """Resume LangGraph with a rejection decision."""
 
     response = await agent.resume_confirmation(
         tenant_id=request.tenant_id,
         user_id=request.user_id,
         confirmation_id=confirmation_id,
         decision="reject",
-        reason=request.comment,
+        reason=request.reason,
     )
     return ConfirmationDecisionResponse(
         confirmation_id=confirmation_id,
-        decision="reject",
-        graph_status=response.status,
+        status="rejected",
+        message="操作已取消，原 LangGraph 线程已恢复并结束",
         conversation_id=response.conversation_id,
         thread_id=response.thread_id,
+        run_id=response.run_id,
         answer=response.answer,
+        graph_status=response.status,
         next_confirmation=response.pending_confirmation,
-        tool_results=response.tool_results,
-        trace=response.trace,
+        plan=response.plan.model_dump() if response.plan else None,
+        tool_results=[item.model_dump() for item in response.tool_results],
+        trace=[item.model_dump() for item in response.trace],
     )

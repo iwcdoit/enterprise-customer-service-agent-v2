@@ -1,42 +1,37 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, AsyncIterator
 
 from openai import AsyncOpenAI
 
 from customer_service_app.core.config import Settings
 from customer_service_app.core.exceptions import ExternalServiceError
-from customer_service_app.domain.cost import TokenUsage
 from customer_service_app.infrastructure.llm.base import LLMClient, LLMResponse, LLMToolCall
+from customer_service_app.observability.langsmith import wrap_openai_client
 
 
 class OpenAICompatibleLLMClient(LLMClient):
-    """OpenAI 兼容格式的聊天模型客户端。
-
-    这里是项目真正调用大模型的出口。DeepSeek、通义千问、OpenAI 兼容网关等，
-    只要接口协议兼容，都可以通过这里接入。
-    """
+    """Chat-model client for OpenAI-compatible providers."""
 
     def __init__(self, settings: Settings):
-        """构造方法：保存配置，真实 HTTP 客户端按需创建。"""
         self._settings = settings
         self._client: AsyncOpenAI | None = None
 
     @property
     def client(self) -> AsyncOpenAI:
-        """懒加载 LLM 客户端。
+        """Create the HTTP client lazily and wrap it with LangSmith when enabled."""
 
-        `self._client is None` 表示第一次调用才创建连接对象；
-        之后复用同一个客户端，避免每次请求重复初始化。
-        """
         if self._client is None:
             api_key = self._settings.require("LLM_API_KEY", self._settings.llm_api_key)
             base_url = self._settings.require("LLM_BASE_URL", self._settings.llm_base_url)
             self._settings.require("LLM_MODEL", self._settings.llm_model)
-            self._client = AsyncOpenAI(
-                api_key=api_key,
-                base_url=base_url,
-                timeout=self._settings.llm_timeout_seconds,
+            self._client = wrap_openai_client(
+                AsyncOpenAI(
+                    api_key=api_key,
+                    base_url=base_url,
+                    timeout=self._settings.llm_timeout_seconds,
+                )
             )
         return self._client
 
@@ -49,37 +44,26 @@ class OpenAICompatibleLLMClient(LLMClient):
         temperature: float | None = None,
         model: str | None = None,
     ) -> LLMResponse:
-        """调用非流式聊天接口。
+        """调用 OpenAI-compatible 对话接口并转换为内部响应。"""
 
-        这里的关键点是：
-        - `messages` 是真正传给大模型的上下文。
-        - `tools` 是绑定给模型的工具定义，不是直接塞进用户 question。
-        - 模型如果判断需要工具，会在响应里返回 `tool_calls`。
-        """
         kwargs: dict[str, Any] = {
             "model": model or self._settings.llm_model,
             "messages": messages,
-            "temperature": temperature if temperature is not None else self._settings.llm_temperature,
+            "temperature": temperature or self._settings.llm_temperature,
         }
-        if tools:
+        if tools is not None:
             kwargs["tools"] = tools
         if tool_choice is not None:
             kwargs["tool_choice"] = tool_choice
-
+        selected_model = str(kwargs["model"])
         try:
-            # create(**kwargs)等价于：
-            # create(
-            #     model="gpt-4o-mini",
-            #     messages=[{"role": "user", "content": "你好"}],
-            #     temperature=0.7,
-            # )
             response = await self.client.chat.completions.create(**kwargs)
-        except Exception as exc:
-            raise ExternalServiceError(f"LLM request failed: {exc}") from exc
-
+        except Exception as e:
+            logging.info("llm chat create error:{}",e)
+            raise ExternalServiceError(f"llm request error: {e}") from e
         choice = response.choices[0]
         message = choice.message
-        usage = getattr(response, "usage", None)
+
         tool_calls: list[LLMToolCall] = []
         for call in message.tool_calls or []:
             tool_calls.append(
@@ -89,17 +73,18 @@ class OpenAICompatibleLLMClient(LLMClient):
                     arguments=call.function.arguments,
                 )
             )
+
+        usage = response.usage
         return LLMResponse(
             content=message.content or "",
             tool_calls=tool_calls,
             finish_reason=choice.finish_reason,
-            model=getattr(response, "model", None) or str(kwargs["model"]),
-            usage=TokenUsage(
-                prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
-                completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
-                total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
-            ),
+            model=getattr(response, "model", None) or selected_model,
+            prompt_tokens=usage.prompt_tokens if usage else 0,
+            completion_tokens=usage.completion_tokens if usage else 0,
+            total_tokens=usage.total_tokens if usage else 0,
         )
+
 
     async def stream_chat(
         self,
@@ -107,30 +92,38 @@ class OpenAICompatibleLLMClient(LLMClient):
         *,
         temperature: float | None = None,
     ) -> AsyncIterator[str]:
-        """调用流式聊天接口，把模型文本增量一段段 yield 给上层。
+        """流式调用对话接口并逐段输出文本。"""
 
-        `yield` 和 `return` 不一样：
-        - `return` 是一次性返回结果。
-        - `yield` 是每次产出一小段，前端就能边生成边显示。
-        """
+        kwargs: dict[str, Any] = {
+            "model": self._settings.llm_model,
+            "messages": messages,
+            "temperature": (
+                temperature
+                if temperature is not None
+                else self._settings.llm_temperature
+            ),
+            "stream": True,
+        }
+
         try:
-            stream = await self.client.chat.completions.create(
-                model=self._settings.llm_model,
-                messages=messages,
-                temperature=temperature if temperature is not None else self._settings.llm_temperature,
-                stream=True,
-            )
+            stream = await self.client.chat.completions.create(**kwargs)
+
             async for chunk in stream:
                 if not chunk.choices:
                     continue
+
                 delta = chunk.choices[0].delta
+
                 if delta.content:
                     yield delta.content
+
         except Exception as exc:
-            raise ExternalServiceError(f"LLM stream request failed: {exc}") from exc
+            logging.info("llm stream chat create error: %s", exc)
+            raise ExternalServiceError(f"llm stream request error: {exc}") from exc
+
 
     async def close(self) -> None:
-        """释放 OpenAI-compatible HTTP 连接池。"""
+        """Close the shared HTTP connection pool during application shutdown."""
 
         if self._client is not None:
             await self._client.close()

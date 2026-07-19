@@ -7,7 +7,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-# 让脚本可以直接导入项目源码。
 
 from customer_service_app.infrastructure.db.session import create_db_schema, dispose_engine  # noqa: E402
 

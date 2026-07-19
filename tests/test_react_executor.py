@@ -4,9 +4,13 @@ from typing import Any
 
 import pytest
 
-from customer_service_app.domain.planning import AgentPlan, PlanStep
+from customer_service_app.domain.planning import PlanStep
 from customer_service_app.services.react_executor import ReactExecutor
-from customer_service_app.services.tool_registry import ToolExecutionContext, ToolRegistry, ToolSpec
+from customer_service_app.services.tool_registry import (
+    ToolExecutionContext,
+    ToolRegistry,
+    ToolSpec,
+)
 
 
 class FakeRagService:
@@ -32,7 +36,7 @@ def build_context() -> ToolExecutionContext:
 
 
 @pytest.mark.asyncio
-async def test_react_executor_runs_steps_once_and_respects_dependencies() -> None:
+async def test_react_executor_executes_one_tool_step() -> None:
     registry = ToolRegistry()
     registry.register(
         ToolSpec(
@@ -42,81 +46,53 @@ async def test_react_executor_runs_steps_once_and_respects_dependencies() -> Non
             handler=echo_tool,
         )
     )
-    plan = AgentPlan(
-        user_goal="execute two steps",
-        max_steps=2,
-        steps=[
-            PlanStep(
-                id="step-1",
-                title="first",
-                action_type="tool",
-                tool_name="echo",
-                arguments={"value": 1},
-            ),
-            PlanStep(
-                id="step-2",
-                title="second",
-                action_type="tool",
-                tool_name="echo",
-                arguments={"value": 2},
-                depends_on=["step-1"],
-            ),
-        ],
+    step = PlanStep(
+        step_id="step-1",
+        title="first",
+        goal="echo value",
+        action_type="tool",
+        tool_name="echo",
+        arguments={"value": 1},
     )
     executor = ReactExecutor(
         rag_service=FakeRagService(),  # type: ignore[arg-type]
         tool_registry=registry,
     )
 
-    result = await executor.execute(
-        plan=plan,
+    observation = await executor.execute_step(
         tenant_id="tenant-1",
         question="test",
+        step=step,
         context=build_context(),
     )
 
-    assert result.completed_step_ids == ["step-1", "step-2"]
-    assert result.observations["step-2"]["value"] == 2
-    assert [step.attempts for step in result.plan.steps] == [1, 1]
+    assert observation["step_id"] == "step-1"
+    assert observation["result"] == {"value": 1}
 
 
 @pytest.mark.asyncio
-async def test_react_executor_never_runs_steps_past_plan_limit() -> None:
-    registry = ToolRegistry()
-    registry.register(
-        ToolSpec(
-            name="echo",
-            description="echo",
-            parameters={"type": "object"},
-            handler=echo_tool,
-        )
-    )
-    plan = AgentPlan(
-        user_goal="bounded execution",
-        max_steps=1,
-        steps=[
-            PlanStep(
-                id=f"step-{index}",
-                title="echo",
-                action_type="tool",
-                tool_name="echo",
-                arguments={"value": index},
-            )
-            for index in range(1, 3)
-        ],
-    )
+async def test_react_executor_returns_rag_observation() -> None:
     executor = ReactExecutor(
         rag_service=FakeRagService(),  # type: ignore[arg-type]
-        tool_registry=registry,
+        tool_registry=ToolRegistry(),
+    )
+    step = PlanStep(
+        step_id="step-rag",
+        title="retrieve",
+        goal="retrieve policy",
+        action_type="rag",
     )
 
-    result = await executor.execute(
-        plan=plan,
+    observation = await executor.execute_step(
         tenant_id="tenant-1",
         question="test",
+        step=step,
         context=build_context(),
     )
 
-    assert result.completed_step_ids == ["step-1"]
-    assert result.skipped_step_ids == ["step-2"]
-    assert result.plan.steps[1].attempts == 0
+    assert observation == {
+        "step_id": "step-rag",
+        "action_type": "rag",
+        "chunk_count": 0,
+        "chunks": [],
+    }

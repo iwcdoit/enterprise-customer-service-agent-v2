@@ -6,28 +6,33 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from customer_service_app.api.routes_agent_runs import router as agent_runs_router
 from customer_service_app.api.routes_chat import router as chat_router
 from customer_service_app.api.routes_confirmations import router as confirmations_router
 from customer_service_app.api.routes_conversations import router as conversations_router
 from customer_service_app.api.routes_health import router as health_router
 from customer_service_app.api.routes_graph import router as graph_router
 from customer_service_app.api.routes_human_support import router as human_support_router
+from customer_service_app.api.routes_metrics import router as metrics_router
 from customer_service_app.api.routes_ops import router as ops_router
 from customer_service_app.core.config import get_settings
 from customer_service_app.core.exceptions import AppError
 from customer_service_app.core.logging import configure_logging
 from customer_service_app.core.middleware import RequestContextMiddleware
+from customer_service_app.observability.langsmith import configure_langsmith
+from customer_service_app.observability.telemetry import configure_telemetry
 from customer_service_app.services.container import ApplicationContainer
 
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     settings = get_settings()
+
     configure_logging(settings)
+    configure_langsmith(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        # Graph 和 Checkpointer 是应用级资源，只在进程启动时创建一次。
         app.state.container = await ApplicationContainer.create(settings)
         try:
             yield
@@ -35,10 +40,12 @@ def create_app() -> FastAPI:
             await app.state.container.close()
 
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
+
     app.add_middleware(RequestContextMiddleware)
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins or ["https://console.example.com"],
+        allow_origins=settings.cors_origins or ["http://localhost:3000"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -46,11 +53,18 @@ def create_app() -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(ops_router)
+
     app.include_router(chat_router, prefix=settings.api_prefix)
-    app.include_router(confirmations_router, prefix=settings.api_prefix)
     app.include_router(conversations_router, prefix=settings.api_prefix)
-    app.include_router(human_support_router, prefix=settings.api_prefix)
+    app.include_router(confirmations_router, prefix=settings.api_prefix)
+    app.include_router(agent_runs_router, prefix=settings.api_prefix)
     app.include_router(graph_router, prefix=settings.api_prefix)
+    app.include_router(human_support_router, prefix=settings.api_prefix)
+
+    if settings.metrics_enabled:
+        app.include_router(metrics_router)
+
+    configure_telemetry(app, settings)
 
     @app.exception_handler(AppError)
     async def app_error_handler(_: Request, exc: AppError) -> JSONResponse:
@@ -64,4 +78,8 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-"""ASGI application entrypoint."""
+"""ASGI application entrypoint.
+
+Uvicorn 启动时会加载这个变量：
+`uvicorn customer_service_app.main:app`
+"""

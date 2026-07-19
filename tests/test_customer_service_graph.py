@@ -7,36 +7,43 @@ from customer_service_app.workflows.context import CustomerServiceGraphContext
 from customer_service_app.workflows.customer_service_graph import build_customer_service_graph
 
 
-class RoutingNodes:
-    def __init__(self, *, planned: bool) -> None:
-        self.planned = planned
+class DirectAnswerNodes:
+    """用最小节点实现验证完整图的直接回答分支。"""
+
+    def __init__(self) -> None:
         self.calls: list[str] = []
 
     async def prepare(self, state):
         self.calls.append("prepare")
-        return Command(goto="plan" if self.planned else "answer")
+        return Command(goto="rewrite")
 
-    async def plan(self, state):
-        self.calls.append("plan")
-        return Command(update={"plan": {"steps": []}}, goto="execute_plan")
+    async def rewrite(self, state):
+        self.calls.append("rewrite")
+        return Command(goto="retrieve")
 
-    async def execute_plan(self, state):
-        self.calls.append("execute_plan")
-        return Command(update={"plan_execution": {"completed_step_ids": []}}, goto="answer")
+    async def retrieve(self, state):
+        self.calls.append("retrieve")
+        return Command(goto="evaluate_retrieval")
 
-    async def answer(self, state):
-        self.calls.append("answer")
-        return {"response": {"conversation_id": "conversation-1", "answer": "ok"}}
+    async def evaluate_retrieval(self, state):
+        self.calls.append("evaluate_retrieval")
+        return Command(goto="decide")
 
-    async def await_confirmation(self, state):
-        raise AssertionError("unexpected node")
+    async def decide(self, state):
+        self.calls.append("decide")
+        return Command(update={"final_answer": "ok"}, goto="finalize")
 
-    async def apply_confirmation(self, state):
-        raise AssertionError("unexpected node")
+    async def finalize(self, state):
+        self.calls.append("finalize")
+        return Command(goto="persist")
+
+    async def persist(self, state):
+        self.calls.append("persist")
+        return {"status": "completed"}
 
 
-async def test_graph_skips_planner_for_simple_request() -> None:
-    nodes = RoutingNodes(planned=False)
+async def test_graph_runs_complete_direct_answer_path() -> None:
+    nodes = DirectAnswerNodes()
     graph = build_customer_service_graph(InMemorySaver())
 
     state = await graph.ainvoke(
@@ -45,56 +52,57 @@ async def test_graph_skips_planner_for_simple_request() -> None:
         context=CustomerServiceGraphContext(nodes=nodes),  # type: ignore[arg-type]
     )
 
-    assert state["response"]["answer"] == "ok"
-    assert nodes.calls == ["prepare", "answer"]
-
-
-async def test_graph_runs_bounded_plan_branch_for_complex_request() -> None:
-    nodes = RoutingNodes(planned=True)
-    graph = build_customer_service_graph(InMemorySaver())
-
-    state = await graph.ainvoke(
-        {"request": {}, "thread_id": "plan-thread"},
-        config={"configurable": {"thread_id": "plan-thread"}},
-        context=CustomerServiceGraphContext(nodes=nodes),  # type: ignore[arg-type]
-    )
-
-    assert state["response"]["answer"] == "ok"
-    assert nodes.calls == ["prepare", "plan", "execute_plan", "answer"]
+    assert state["final_answer"] == "ok"
+    assert state["status"] == "completed"
+    assert nodes.calls == [
+        "prepare",
+        "rewrite",
+        "retrieve",
+        "evaluate_retrieval",
+        "decide",
+        "finalize",
+        "persist",
+    ]
 
 
 class HilNodes:
-    """用最小节点验证真实拓扑的 interrupt、checkpoint 和 resume。"""
+    """验证完整拓扑中的 interrupt、checkpoint 和 resume。"""
 
     async def prepare(self, state):
         return Command(
+            update={"status": "running", "conversation_id": "conversation-1"},
+            goto="create_pending_action",
+        )
+
+    async def create_pending_action(self, state):
+        return Command(
             update={
-                "status": "running",
-                "pending_confirmations": [{"id": "confirmation-1"}],
-                "confirmation_cursor": 0,
+                "pending_confirmation": {
+                    "id": "confirmation-1",
+                    "tool_name": "create_refund_case",
+                },
+                "status": "waiting_confirmation",
+                "final_answer": "请确认",
             },
             goto="await_confirmation",
         )
 
     async def await_confirmation(self, state):
-        decision = interrupt({"pending_confirmation": state["pending_confirmations"][0]})
-        return Command(update={"confirmation_decision": decision}, goto="apply_confirmation")
+        decision = interrupt({"pending_confirmation": state["pending_confirmation"]})
+        return Command(
+            update={"confirmation_decision": decision, "status": "running"},
+            goto="apply_confirmation",
+        )
 
     async def apply_confirmation(self, state):
         assert state["confirmation_decision"]["decision"] == "approve"
-        return Command(update={"status": "running"}, goto="answer")
+        return Command(
+            update={"pending_confirmation": None, "final_answer": "已执行"},
+            goto="persist",
+        )
 
-    async def answer(self, state):
-        return {
-            "status": "completed",
-            "response": {"conversation_id": "conversation-1", "answer": "已执行"},
-        }
-
-    async def plan(self, state):
-        raise AssertionError("unexpected node")
-
-    async def execute_plan(self, state):
-        raise AssertionError("unexpected node")
+    async def persist(self, state):
+        return {"status": "completed"}
 
 
 async def test_graph_interrupt_checkpoint_and_resume() -> None:
@@ -108,10 +116,9 @@ async def test_graph_interrupt_checkpoint_and_resume() -> None:
         context=context,
     )
 
-    assert interrupted["pending_confirmations"][0]["id"] == "confirmation-1"
+    assert interrupted["status"] == "waiting_confirmation"
     assert interrupted["__interrupt__"]
-    snapshot = await graph.aget_state(config)
-    assert snapshot.next == ("await_confirmation",)
+    assert (await graph.aget_state(config)).next == ("await_confirmation",)
 
     completed = await graph.ainvoke(
         Command(resume={"confirmation_id": "confirmation-1", "decision": "approve"}),
@@ -120,5 +127,5 @@ async def test_graph_interrupt_checkpoint_and_resume() -> None:
     )
 
     assert completed["status"] == "completed"
-    assert completed["response"]["answer"] == "已执行"
+    assert completed["final_answer"] == "已执行"
     assert (await graph.aget_state(config)).next == ()

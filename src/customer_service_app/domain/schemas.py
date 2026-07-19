@@ -6,41 +6,25 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from customer_service_app.domain.cost import CostStrategy
-from customer_service_app.domain.human_support import HumanHandoffView
+from customer_service_app.domain.confirmations import PendingActionView
 from customer_service_app.domain.planning import AgentPlan, PlanExecutionResult
+from customer_service_app.domain.human_support import HumanHandoffView
 
 
 MessageRole = Literal["system", "user", "assistant", "tool"]
-"""消息角色枚举。
-
-`Literal[...]` 表示变量只能取这些固定字符串之一，类似 Java enum 的轻量写法。
-"""
 
 
 class ChatMessage(BaseModel):
-    """一条对话消息。
-
-    role 表示消息是谁说的：用户、助手、系统提示词，或工具返回结果。
-    这个模型主要用于前端传入历史消息，以及从数据库恢复历史上下文。
-
-    `BaseModel` 是 Pydantic 的数据模型基类，类似 Java DTO + 参数校验注解的组合。
-    """
+    """对话消息。"""
 
     role: MessageRole
     content: str
     name: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
-    # `Field(default_factory=dict)` 表示每个对象都创建自己的空 dict；
-    # 不要写成 `metadata: dict = {}`，否则多个对象可能共享同一个默认字典。
 
 
 class ChatRequest(BaseModel):
-    """聊天接口的请求体。
-
-    运营测试台或前端每发一次消息，都会提交这个结构。
-    tenant_id / user_id 用来做数据隔离，conversation_id 用来延续同一轮会话。
-    metadata 可以放调试开关，例如 skip_cache=true 表示本次请求跳过语义缓存。
-    """
+    """聊天请求。"""
 
     tenant_id: str = Field(default="default", description="租户或业务线 ID")
     user_id: str = Field(description="当前用户 ID")
@@ -52,11 +36,7 @@ class ChatRequest(BaseModel):
 
 
 class KnowledgeChunk(BaseModel):
-    """RAG 从向量库里命中的一段知识。
-
-    content 会被拼进 system prompt，让大模型基于企业知识库回答。
-    score 是向量相似度，越高代表越接近用户问题。
-    """
+    """RAG 检索命中的知识块。"""
 
     id: str
     source: str
@@ -67,11 +47,7 @@ class KnowledgeChunk(BaseModel):
 
 
 class ToolCallView(BaseModel):
-    """模型决定调用工具时，对外展示的工具调用信息。
-
-    这里只记录模型“想调用什么工具、传了什么参数”。
-    真正执行工具的是后端 ToolRegistry，不是模型本身。
-    """
+    """模型生成的工具调用。"""
 
     id: str
     name: str
@@ -79,10 +55,7 @@ class ToolCallView(BaseModel):
 
 
 class ToolResultView(BaseModel):
-    """后端执行工具后的结果。
-
-    ok 表示工具是否执行成功，payload 是工具真实返回的数据，例如订单状态或工单号。
-    """
+    """后端工具执行结果。"""
 
     tool_call_id: str
     name: str
@@ -113,16 +86,118 @@ class ChatResponse(BaseModel):
     thread_id: str | None = None
     answer: str
     status: str = "completed"
+    run_id: str | None = None
     cache_hit: bool = False
+    query_rewrite: dict[str, Any] = Field(default_factory=dict)
+    retrieval_quality: dict[str, Any] = Field(default_factory=dict)
     knowledge: list[KnowledgeChunk] = Field(default_factory=list)
     tool_calls: list[ToolCallView] = Field(default_factory=list)
     tool_results: list[ToolResultView] = Field(default_factory=list)
+    pending_confirmation: PendingActionView | None = None
     plan: AgentPlan | None = None
     plan_execution: PlanExecutionResult | None = None
+    trace: list[ChatTraceStep] = Field(default_factory=list)
     service_mode: str = "bot"
     human_handoff: HumanHandoffView | None = None
-    pending_confirmation: PendingActionView | None = None
-    trace: list[ChatTraceStep] = Field(default_factory=list)
+
+
+class ConversationMessageView(BaseModel):
+    """One persisted conversation message returned to the frontend."""
+
+    id: str
+    role: MessageRole
+    content: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    conversation_id: str | None = None
+    created_at: datetime | str | None = None
+
+
+class ConversationDetailView(BaseModel):
+    """一个会话及其最近消息。"""
+
+    conversation: "ConversationView"
+    messages: list[ConversationMessageView] = Field(default_factory=list)
+
+
+class GraphTaskView(BaseModel):
+    """One pending LangGraph task in a checkpoint snapshot."""
+
+    id: str
+    name: str
+    interrupts: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class GraphStateView(BaseModel):
+    """Serializable view of a LangGraph checkpoint."""
+
+    thread_id: str
+    status: str
+    next_nodes: list[str] = Field(default_factory=list)
+    values: dict[str, Any] = Field(default_factory=dict)
+    tasks: list[GraphTaskView] = Field(default_factory=list)
+
+
+class AgentRunStepView(BaseModel):
+    """One persisted trace step for an Agent run."""
+
+    id: str
+    stage: str
+    name: str
+    status: str
+    input: dict[str, Any] = Field(default_factory=dict)
+    output: dict[str, Any] = Field(default_factory=dict)
+    latency_ms: float | None = None
+
+
+class AgentRunView(BaseModel):
+    """Trace view for one Agent request."""
+
+    id: str
+    tenant_id: str
+    user_id: str
+    conversation_id: str | None = None
+    status: str
+    model: str | None = None
+    total_tokens: int = 0
+    error_code: str | None = None
+    error_message: str | None = None
+    steps: list[AgentRunStepView] = Field(default_factory=list)
+
+
+class RuntimeConfigView(BaseModel):
+    """不暴露密钥的运行配置摘要。"""
+
+    app_name: str
+    runtime_env: str
+    api_prefix: str
+    llm_provider: str
+    embedding_provider: str
+    vector_store_provider: str
+    rag_enabled: bool
+    semantic_cache_enabled: bool
+    mcp_after_sales_enabled: bool
+    cost_governance_enabled: bool
+    search_enabled: bool
+    warnings: list[str] = Field(default_factory=list)
+
+
+class TenantStrategyView(BaseModel):
+    """租户当前成本策略。"""
+
+    tenant_id: str
+    strategy: CostStrategy
+    notes: list[str] = Field(default_factory=list)
+
+
+class PendingActionSummaryView(BaseModel):
+    """用户待确认动作概览。"""
+
+    tenant_id: str
+    user_id: str
+    total_pending: int
+    active_pending: int
+    expired_pending: int
+    actions: list[PendingActionView] = Field(default_factory=list)
 
 
 class ConversationCreateRequest(BaseModel):
@@ -144,124 +219,6 @@ class ConversationView(BaseModel):
     service_mode: str = "bot"
 
 
-class ConversationMessageView(BaseModel):
-    """会话详情页展示的一条历史消息。"""
-
-    id: str
-    conversation_id: str
-    role: str
-    content: str
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    created_at: datetime | None = None
-
-
-class ConversationDetailView(BaseModel):
-    """一个会话及其最近消息。"""
-
-    conversation: ConversationView
-    messages: list[ConversationMessageView] = Field(default_factory=list)
-
-
-class ConfirmationDecisionRequest(BaseModel):
-    """确认或拒绝高风险工具动作的请求体。"""
-
-    tenant_id: str
-    user_id: str
-    comment: str | None = None
-
-
-class ConfirmationDecisionResponse(BaseModel):
-    """确认后恢复原 Graph thread 的结果。"""
-
-    confirmation_id: str
-    decision: Literal["approve", "reject"]
-    graph_status: str
-    conversation_id: str | None = None
-    thread_id: str | None = None
-    answer: str = ""
-    next_confirmation: PendingActionView | None = None
-    tool_results: list[ToolResultView] = Field(default_factory=list)
-    trace: list[ChatTraceStep] = Field(default_factory=list)
-
-
-class PendingActionView(BaseModel):
-    """等待用户或人工客服确认的工具动作。"""
-
-    id: str
-    tenant_id: str
-    user_id: str
-    conversation_id: str | None
-    thread_id: str | None = None
-    confirmation_id: str | None = None
-    tool_name: str
-    arguments: dict[str, Any]
-    status: str
-    comment: str | None = None
-    result: dict[str, Any] = Field(default_factory=dict)
-    error_message: str | None = None
-    created_at: datetime | None = None
-    expires_at: datetime | None = None
-    expired: bool = False
-
-
-class GraphTaskView(BaseModel):
-    """Checkpoint 中一个尚未完成的 LangGraph task。"""
-
-    id: str
-    name: str
-    interrupts: list[dict[str, Any]] = Field(default_factory=list)
-
-
-class GraphStateView(BaseModel):
-    """运营侧可读取的脱敏 Graph checkpoint 快照。"""
-
-    thread_id: str
-    status: str
-    next_nodes: list[str] = Field(default_factory=list)
-    values: dict[str, Any] = Field(default_factory=dict)
-    tasks: list[GraphTaskView] = Field(default_factory=list)
-
-
-class RuntimeConfigView(BaseModel):
-    """运营诊断页展示的安全运行配置摘要。
-
-    这里不能返回 API key、数据库密码、Redis 密码等敏感信息，只展示功能开关、
-    provider 和必要的配置完整性提示。
-    """
-
-    app_name: str
-    runtime_env: str
-    api_prefix: str
-    llm_provider: str
-    embedding_provider: str
-    vector_store_provider: str
-    rag_enabled: bool
-    semantic_cache_enabled: bool
-    mcp_after_sales_enabled: bool
-    cost_governance_enabled: bool
-    search_enabled: bool
-    warnings: list[str] = Field(default_factory=list)
-
-
-class TenantStrategyView(BaseModel):
-    """运营侧查看某个租户当前会采用的成本策略。"""
-
-    tenant_id: str
-    strategy: CostStrategy
-    notes: list[str] = Field(default_factory=list)
-
-
-class PendingActionSummaryView(BaseModel):
-    """运营侧查看某个用户的待确认动作概览。"""
-
-    tenant_id: str
-    user_id: str
-    total_pending: int
-    active_pending: int
-    expired_pending: int
-    actions: list[PendingActionView] = Field(default_factory=list)
-
-
 class HealthResponse(BaseModel):
     """健康检查接口返回值。
 
@@ -273,6 +230,4 @@ class HealthResponse(BaseModel):
     runtime_env: str
 
 
-# ChatResponse 在文件前部引用了后面声明的 PendingActionView；模块加载完成后统一解析前向引用。
-ChatResponse.model_rebuild()
-ConfirmationDecisionResponse.model_rebuild()
+ConversationDetailView.model_rebuild()
