@@ -416,6 +416,7 @@ class CustomerServiceGraphNodes:
                 model=strategy.model,
                 resolved_question=state.get("rewritten_question"),
                 memory_context=state.get("memory_context"),
+                rewrite_result=state.get("query_rewrite"),
             )
             if planner_response is not None:
                 await self._record_usage(state["tenant_id"], planner_response)

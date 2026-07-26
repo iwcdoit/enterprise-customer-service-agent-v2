@@ -10,6 +10,7 @@ from jsonschema import validate as validate_json_schema
 from pydantic import BaseModel, Field, ValidationError
 
 from customer_service_app.domain.planning import AgentPlan, PlanStep
+from customer_service_app.domain.query_rewrite import QueryRewriteResult
 from customer_service_app.domain.schemas import ChatRequest
 from customer_service_app.infrastructure.llm.base import LLMClient, LLMResponse
 from customer_service_app.services.tool_registry import ToolRegistry, ToolSpec
@@ -85,11 +86,17 @@ class PlannerService:
         model: str,
         resolved_question: str | None = None,
         memory_context: dict[str, Any] | None = None,
+        rewrite_result: QueryRewriteResult | dict[str, Any] | None = None,
     ) -> tuple[AgentPlan | None, LLMResponse | None]:
         """Generate and validate a plan, falling back deterministically on malformed output."""
         goal = (resolved_question or request.question).strip()
         if not self.needs_plan(request, resolved_question=goal):
             return None, None
+        rewrite = (
+            QueryRewriteResult.model_validate(rewrite_result)
+            if rewrite_result is not None
+            else None
+        )
 
         tools = [
             {
@@ -162,8 +169,10 @@ class PlannerService:
                 "content": json.dumps(
                     {
                         "original_question": request.question,
-                        "resolved_goal": goal,
-                        "context": memory_context or {},
+                        "standalone_question": goal,
+                        "verified_entities": rewrite.entities if rewrite else {},
+                        "missing_fields": rewrite.missing_fields if rewrite else [],
+                        "controlled_context": self._planner_context(memory_context),
                         "max_steps": self._max_steps,
                         "available_tools": tools,
                     },
@@ -261,19 +270,23 @@ class PlannerService:
         resolved_question: str | None = None,
     ) -> AgentPlan:
         draft = PlannerDraft.model_validate(payload)
-        raw_steps = draft.steps
+        raw_steps = draft.steps[: self._max_steps]
 
-        steps: list[PlanStep] = []
         seen_tools: set[tuple[str, str]] = set()
+        original_ids: list[str] = []
+        draft_by_id: dict[str, PlannerStepDraft] = {}
+        normalized_fields: dict[str, tuple[str | None, str, bool]] = {}
+        dependencies_by_id: dict[str, list[str]] = {}
 
-        id_mapping: dict[str, str] = {}
-        for index, item in enumerate(raw_steps[: self._max_steps], start=1):
-            if item.step_id:
-                if item.step_id in id_mapping:
-                    raise ValueError("Planner step_id must be unique")
-                id_mapping[item.step_id] = f"s{index}"
+        for index, item in enumerate(raw_steps, start=1):
+            original_id = item.step_id.strip() or f"step-{index}"
+            if original_id in draft_by_id:
+                raise ValueError("Planner step_id must be unique")
+            original_ids.append(original_id)
+            draft_by_id[original_id] = item
 
-        for index, item in enumerate(raw_steps[: self._max_steps], start=1):
+        for original_id in original_ids:
+            item = draft_by_id[original_id]
             tool_name = item.tool_name
             action_type = item.action_type
             arguments = item.arguments
@@ -298,25 +311,43 @@ class PlannerService:
                 raise ValueError(f"Planner action {action_type} requires tool_name")
 
             unknown_dependencies = [
-                value for value in item.depends_on if value not in id_mapping
+                value for value in item.depends_on if value not in draft_by_id
             ]
             if unknown_dependencies:
                 raise ValueError(f"Unknown plan dependencies: {unknown_dependencies}")
-            dependencies = [id_mapping[value] for value in item.depends_on]
-            current_step_id = f"s{len(steps) + 1}"
-            if any(int(value[1:]) >= int(current_step_id[1:]) for value in dependencies):
-                raise ValueError("Plan dependency must point to an earlier step")
+            if original_id in item.depends_on:
+                raise ValueError("Plan step may not depend on itself")
+            dependencies_by_id[original_id] = list(dict.fromkeys(item.depends_on))
+            normalized_fields[original_id] = (
+                tool_name,
+                action_type,
+                requires_confirmation,
+            )
 
+        ordered_ids = self._topological_order(
+            original_ids=original_ids,
+            dependencies_by_id=dependencies_by_id,
+        )
+        id_mapping = {
+            original_id: f"s{index}"
+            for index, original_id in enumerate(ordered_ids, start=1)
+        }
+        steps: list[PlanStep] = []
+        for original_id in ordered_ids:
+            item = draft_by_id[original_id]
+            tool_name, action_type, requires_confirmation = normalized_fields[original_id]
             steps.append(
                 PlanStep(
-                    step_id=f"s{len(steps) + 1}",
-                    title=item.title or f"步骤 {index}",
+                    step_id=id_mapping[original_id],
+                    title=item.title or f"步骤 {len(steps) + 1}",
                     goal=item.goal or resolved_question or request.question,
                     action_type=action_type,
                     tool_name=tool_name,
-                    depends_on=dependencies,
+                    depends_on=[
+                        id_mapping[value] for value in dependencies_by_id[original_id]
+                    ],
                     requires_confirmation=requires_confirmation,
-                    arguments=arguments,
+                    arguments=item.arguments,
                 )
             )
 
@@ -515,3 +546,52 @@ class PlannerService:
             self._tool_registry.require(name)
             for name in sorted(self._tool_registry.names())
         ]
+
+    @staticmethod
+    def _topological_order(
+        *,
+        original_ids: list[str],
+        dependencies_by_id: dict[str, list[str]],
+    ) -> list[str]:
+        """按依赖关系排序步骤；无可执行节点时说明计划存在环。"""
+
+        ordered: list[str] = []
+        completed: set[str] = set()
+        remaining = set(original_ids)
+        while remaining:
+            ready = [
+                step_id
+                for step_id in original_ids
+                if step_id in remaining
+                and set(dependencies_by_id[step_id]).issubset(completed)
+            ]
+            if not ready:
+                raise ValueError("Plan contains cyclic dependencies")
+            ordered.extend(ready)
+            completed.update(ready)
+            remaining.difference_update(ready)
+        return ordered
+
+    @staticmethod
+    def _planner_context(memory_context: dict[str, Any] | None) -> dict[str, Any]:
+        """只向 Planner 暴露待办动作和已验证记忆，不重复发送整段聊天历史。"""
+
+        if not memory_context:
+            return {}
+        memories = [
+            item
+            for item in memory_context.get("memories", [])
+            if isinstance(item, dict)
+            and item.get("verification_status")
+            in {
+                "explicit_user",
+                "verified_tool",
+                "business_system",
+                "human_confirmed",
+                "risk_engine",
+            }
+        ]
+        return {
+            "pending_actions": list(memory_context.get("pending_actions", []))[:3],
+            "verified_memories": memories[:5],
+        }

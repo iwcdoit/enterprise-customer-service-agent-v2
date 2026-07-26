@@ -20,6 +20,8 @@ class RewriteLLM:
             "sparse_query": "202607180001 退货 签收 政策",
             "intent": "return_policy",
             "entities": {"order_id": "202607180001"},
+            "missing_fields": [],
+            "needs_rewrite": True,
             "needs_clarification": False,
             "clarification_question": None,
             "confidence": 0.92,
@@ -51,6 +53,8 @@ async def test_vague_question_without_context_requests_clarification() -> None:
     )
 
     assert response is None
+    assert result.missing_fields == ["business_reference"]
+    assert result.needs_rewrite is True
     assert result.needs_clarification is True
     assert result.clarification_question
 
@@ -76,6 +80,7 @@ async def test_rewrite_uses_trusted_context_and_preserves_business_id() -> None:
 
     assert response is not None
     assert result.source == "llm"
+    assert result.needs_rewrite is True
     assert result.standalone_question == standalone
 
 

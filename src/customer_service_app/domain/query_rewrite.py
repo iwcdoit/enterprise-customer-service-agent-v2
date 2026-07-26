@@ -17,6 +17,8 @@ class QueryRewriteResult(BaseModel):
     sparse_query: str
     intent: str = "unknown"
     entities: dict[str, Any] = Field(default_factory=dict)
+    missing_fields: list[str] = Field(default_factory=list)
+    needs_rewrite: bool = False
     needs_clarification: bool = False
     clarification_question: str | None = None
     confidence: float = 1.0
