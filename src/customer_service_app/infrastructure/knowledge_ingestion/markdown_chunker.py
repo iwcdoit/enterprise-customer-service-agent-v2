@@ -74,6 +74,7 @@ class MarkdownKnowledgeChunker:
         front_matter, body = self._extract_front_matter(normalized)
         metadata = {**front_matter, **(document_metadata or {})}
         document_type = self._detect_document_type(source, body, metadata)
+        document_content_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
         sections = self._parse_sections(body)
         drafts: list[_DraftChunk] = []
         for section in sections:
@@ -94,7 +95,17 @@ class MarkdownKnowledgeChunker:
                 **draft.metadata,
                 "schema_version": self.schema_version,
                 "document_id": document_id,
+                "document_content_hash": document_content_hash,
                 "document_type": document_type,
+                "version": str(metadata.get("version") or "1"),
+                "corpus_version": str(metadata.get("corpus_version") or "unversioned"),
+                "effective_at": metadata.get("effective_at"),
+                "expires_at": metadata.get("expires_at"),
+                "priority": str(metadata.get("priority") or "normal"),
+                "audience": str(metadata.get("audience") or "customer"),
+                "channel": str(metadata.get("channel") or "all"),
+                "region": str(metadata.get("region") or "all"),
+                "product_line": str(metadata.get("product_line") or "all"),
                 "section_index": draft.section_index,
                 "chunk_index": index,
                 "heading_path": draft.heading_path,

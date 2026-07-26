@@ -24,7 +24,10 @@ from customer_service_app.domain.schemas import (
     ToolCallView,
     ToolResultView,
 )
-from customer_service_app.infrastructure.cache.redis_semantic_cache import RedisSemanticCache
+from customer_service_app.infrastructure.cache.redis_semantic_cache import (
+    RedisSemanticCache,
+    SemanticCacheContext,
+)
 from customer_service_app.infrastructure.db.models import AgentRun
 from customer_service_app.infrastructure.llm.base import LLMClient, LLMResponse
 from customer_service_app.prompts.customer_service import (
@@ -270,6 +273,11 @@ class CustomerServiceGraphNodes:
                 tenant_id=state["tenant_id"],
                 user_id=state["user_id"],
                 question=rewrite.standalone_question,
+                context=self._semantic_cache_context(
+                    request=request,
+                    rewrite=rewrite,
+                    tool_dependency=False,
+                ),
             )
             if cached is not None:
                 return Command(
@@ -1121,9 +1129,21 @@ class CustomerServiceGraphNodes:
                 user_id=state["user_id"],
                 question=state.get("rewritten_question") or request.question,
                 answer=answer,
+                context=self._semantic_cache_context(
+                    request=request,
+                    rewrite=QueryRewriteResult.model_validate(state["query_rewrite"]),
+                    tool_dependency=bool(
+                        state.get("tool_results")
+                        or state.get("plan_observations")
+                        or state.get("pending_confirmation")
+                    ),
+                ),
                 metadata={
                     "conversation_id": state["conversation_id"],
                     "run_id": state.get("run_id"),
+                    "source_chunk_ids": [
+                        str(item.get("id") or "") for item in state.get("knowledge", [])
+                    ],
                 },
             )
 
@@ -1378,6 +1398,27 @@ class CustomerServiceGraphNodes:
             "当前",
         )
         return not any(keyword in question for keyword in realtime_keywords)
+
+    def _semantic_cache_context(
+        self,
+        *,
+        request: ChatRequest,
+        rewrite: QueryRewriteResult,
+        tool_dependency: bool,
+    ) -> SemanticCacheContext:
+        """根据问题理解结果构造缓存复用硬条件。"""
+
+        intent = rewrite.intent if rewrite.intent != "unknown" else "knowledge"
+        answer_type = "policy" if "policy" in intent else "knowledge"
+        return SemanticCacheContext(
+            intent=intent,
+            entities=rewrite.entities,
+            corpus_version=self._settings.knowledge_corpus_version,
+            audience=str(request.metadata.get("audience") or "customer"),
+            answer_type=answer_type,
+            realtime=not self._is_semantic_cache_eligible(request.question),
+            tool_dependency=tool_dependency,
+        )
 
     async def _remember_stable_task_state(self, state: CustomerServiceGraphState) -> None:
         """Only persist successful, backend-verified task observations."""

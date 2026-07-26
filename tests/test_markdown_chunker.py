@@ -23,6 +23,9 @@ def test_markdown_chunker_preserves_heading_hierarchy() -> None:
     assert chunks[0].content.startswith("# 售后服务\n## 退款政策")
     assert chunks[0].metadata["heading_path"] == ["售后服务", "退款政策"]
     assert chunks[0].metadata["document_type"] == "policy"
+    assert chunks[0].metadata["version"] == "1"
+    assert chunks[0].metadata["audience"] == "customer"
+    assert chunks[0].metadata["document_content_hash"]
 
 
 def test_markdown_chunker_keeps_faq_question_and_answer_together() -> None:
@@ -50,6 +53,36 @@ A：退款默认原路退回，不能由客服直接修改收款账户。
     assert "Q：退款多久到账？\n\nA：微信和支付宝" in joined
     assert all(item.metadata["document_type"] == "faq" for item in chunks)
     assert all(item.metadata["audience"] == "customer" for item in chunks)
+
+
+def test_markdown_chunker_preserves_document_governance_metadata() -> None:
+    text = """---
+type: policy
+version: 3
+effective_at: 2026-07-01
+expires_at: 2026-12-31
+audience: merchant
+region: cn-east
+priority: high
+---
+# 商户退款规则
+
+商户需要在两个工作日内审核退款申请。
+"""
+
+    chunk = MarkdownKnowledgeChunker().chunk(
+        text=text,
+        source="policy/merchant-refund.md",
+        document_metadata={"corpus_version": "release-2026-07"},
+    )[0]
+
+    assert chunk.metadata["version"] == "3"
+    assert chunk.metadata["corpus_version"] == "release-2026-07"
+    assert chunk.metadata["effective_at"] == "2026-07-01"
+    assert chunk.metadata["expires_at"] == "2026-12-31"
+    assert chunk.metadata["audience"] == "merchant"
+    assert chunk.metadata["region"] == "cn-east"
+    assert chunk.metadata["priority"] == "high"
 
 
 def test_markdown_chunker_splits_long_paragraph_on_sentences_with_overlap() -> None:

@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     semantic_rewrite_max_retries: int = 1
 
     rag_enabled: bool = True
+    knowledge_corpus_version: str = "v1"
     vector_store_provider: str = "qdrant"
     qdrant_url: str = ""
     qdrant_api_key: str = ""

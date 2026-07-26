@@ -53,7 +53,11 @@ async def ingest(directory: Path, tenant_id: str) -> None:
             chunker.chunk(
                 text=path.read_text(encoding="utf-8"),
                 source=source,
-                document_metadata={"file_name": path.name, "format": "markdown"},
+                document_metadata={
+                    "file_name": path.name,
+                    "format": "markdown",
+                    "corpus_version": settings.knowledge_corpus_version,
+                },
             )
         )
 
