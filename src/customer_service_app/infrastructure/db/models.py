@@ -262,6 +262,35 @@ class MemoryPreference(Base):
     )
 
 
+class KnowledgeDocument(Base):
+    """Lifecycle manifest for one tenant-owned knowledge document."""
+
+    __tablename__ = "knowledge_documents"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=new_id)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    source: Mapped[str] = mapped_column(String(512))
+    document_id: Mapped[str] = mapped_column(String(64), index=True)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    version: Mapped[str] = mapped_column(String(64), default="1")
+    corpus_version: Mapped[str] = mapped_column(String(64), default="unversioned")
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    chunk_ids_json: Mapped[list] = mapped_column(JSON, default=list)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    effective_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "source", name="uq_knowledge_document_tenant_source"),
+        Index("idx_knowledge_document_lifecycle", "tenant_id", "status", "expires_at"),
+    )
+
+
 class TenantUsageDaily(Base):
     """Daily LLM and embedding usage for tenant-level cost governance."""
 

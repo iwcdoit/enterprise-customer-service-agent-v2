@@ -28,3 +28,7 @@ class KnowledgeVectorStore(Protocol):
     ) -> None:
         """Upsert knowledge chunks and their embeddings into the vector store."""
         ...
+
+    async def delete_chunks(self, *, tenant_id: str, chunk_ids: list[str]) -> None:
+        """Delete tenant-owned chunks by their storage IDs."""
+        ...

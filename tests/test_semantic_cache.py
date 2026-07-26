@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from fnmatch import fnmatch
 from dataclasses import asdict
 
 import pytest
@@ -26,8 +27,8 @@ class FakeRedis:
         self.values = values
 
     async def scan_iter(self, *, match: str, count: int):
-        for key in self.values:
-            if ":vec:" in key:
+        for key in list(self.values):
+            if fnmatch(key, match):
                 yield key
 
     async def get(self, key: str) -> str | None:
@@ -35,6 +36,14 @@ class FakeRedis:
 
     async def set(self, key: str, value: str, *, ex: int) -> None:
         self.values[key] = value
+
+    async def delete(self, *keys: str) -> int:
+        deleted = 0
+        for key in keys:
+            if key in self.values:
+                del self.values[key]
+                deleted += 1
+        return deleted
 
 
 @pytest.mark.asyncio
@@ -157,3 +166,31 @@ async def test_semantic_cache_rejects_realtime_and_business_entity_answers() -> 
 
 def test_cosine_returns_zero_for_mismatched_dimensions() -> None:
     assert RedisSemanticCache._cosine([1.0, 0.0], [1.0, 0.0, 0.0]) == 0.0
+
+
+@pytest.mark.asyncio
+async def test_semantic_cache_invalidates_answers_using_changed_chunks() -> None:
+    cache = RedisSemanticCache(
+        Settings(redis_url="redis://cache.example.com/0"),
+        FakeEmbeddingClient(),
+    )
+    prefix = cache._prefix("tenant-a", "user-a")
+    cache._redis = FakeRedis(
+        {
+            f"{prefix}:vec:affected": "[1.0, 0.0]",
+            f"{prefix}:answer:affected": "old answer",
+            f"{prefix}:meta:affected": json.dumps({"source_chunk_ids": ["chunk-old"]}),
+            f"{prefix}:vec:unrelated": "[1.0, 0.0]",
+            f"{prefix}:answer:unrelated": "other answer",
+            f"{prefix}:meta:unrelated": json.dumps({"source_chunk_ids": ["chunk-other"]}),
+        }
+    )
+
+    invalidated = await cache.invalidate_by_chunk_ids(
+        tenant_id="tenant-a",
+        chunk_ids=["chunk-old"],
+    )
+
+    assert invalidated == 1
+    assert f"{prefix}:answer:affected" not in cache._redis.values
+    assert f"{prefix}:answer:unrelated" in cache._redis.values

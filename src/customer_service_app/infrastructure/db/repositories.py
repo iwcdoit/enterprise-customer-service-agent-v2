@@ -16,6 +16,7 @@ from customer_service_app.infrastructure.db.models import (
     ConversationSummary,
     CustomerMemory,
     HumanHandoffSession,
+    KnowledgeDocument,
     MemoryPreference,
     Message,
     Order,
@@ -562,6 +563,68 @@ class MemoryRepository:
         ).limit(limit).order_by(CustomerMemory.updated_at.desc())
         result = await self._session.execute(state)
         return list(result.scalars().all())
+
+
+class KnowledgeDocumentRepository:
+    """Persist the expected index state for each tenant knowledge document."""
+
+    def __init__(self, session: AsyncSession):
+        self._session = session
+
+    async def get_by_source(
+        self,
+        *,
+        tenant_id: str,
+        source: str,
+    ) -> KnowledgeDocument | None:
+        statement = select(KnowledgeDocument).where(
+            KnowledgeDocument.tenant_id == tenant_id,
+            KnowledgeDocument.source == source,
+        )
+        result = await self._session.execute(statement)
+        return result.scalars().one_or_none()
+
+    async def list_by_tenant(self, *, tenant_id: str) -> list[KnowledgeDocument]:
+        statement = select(KnowledgeDocument).where(
+            KnowledgeDocument.tenant_id == tenant_id,
+        )
+        result = await self._session.execute(statement)
+        return list(result.scalars().all())
+
+    async def save(
+        self,
+        *,
+        tenant_id: str,
+        source: str,
+        document_id: str,
+        content_hash: str,
+        version: str,
+        corpus_version: str,
+        status: str,
+        chunk_ids: list[str],
+        metadata: dict[str, Any],
+        effective_at: datetime | None,
+        expires_at: datetime | None,
+        synced_at: datetime,
+    ) -> KnowledgeDocument:
+        """Upsert one document manifest after external indexes reach the same state."""
+
+        document = await self.get_by_source(tenant_id=tenant_id, source=source)
+        if document is None:
+            document = KnowledgeDocument(tenant_id=tenant_id, source=source)
+            self._session.add(document)
+        document.document_id = document_id
+        document.content_hash = content_hash
+        document.version = version
+        document.corpus_version = corpus_version
+        document.status = status
+        document.chunk_ids_json = chunk_ids
+        document.metadata_json = metadata
+        document.effective_at = effective_at
+        document.expires_at = expires_at
+        document.synced_at = synced_at
+        await self._session.flush()
+        return document
 
 
 class UsageRepository:

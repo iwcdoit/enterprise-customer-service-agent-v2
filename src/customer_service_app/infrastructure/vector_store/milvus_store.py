@@ -191,6 +191,21 @@ class MilvusKnowledgeVectorStore(KnowledgeVectorStore):
         except Exception as exc:
             raise ExternalServiceError(f"Milvus upsert failed: {exc}") from exc
 
+    async def delete_chunks(self, *, tenant_id: str, chunk_ids: list[str]) -> None:
+        """Delete obsolete tenant-namespaced chunk IDs from Milvus."""
+
+        if not chunk_ids:
+            return
+        await self.ensure_collection()
+        try:
+            await asyncio.to_thread(
+                self.client.delete,
+                collection_name=self._settings.milvus_collection,
+                ids=chunk_ids,
+            )
+        except Exception as exc:
+            raise ExternalServiceError(f"Milvus delete failed: {exc}") from exc
+
     async def close(self) -> None:
         """在线程池中关闭 Milvus 同步客户端。"""
 

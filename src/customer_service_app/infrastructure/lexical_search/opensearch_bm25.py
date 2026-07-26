@@ -145,6 +145,33 @@ class OpenSearchBM25Retriever:
         except (httpx.HTTPError, ValueError) as exc:
             raise ExternalServiceError(f"OpenSearch bulk upsert failed: {exc}") from exc
 
+    async def delete_chunks(self, *, tenant_id: str, chunk_ids: list[str]) -> None:
+        """Delete obsolete chunk IDs from the BM25 index."""
+
+        if not chunk_ids:
+            return
+        await self.ensure_index()
+        lines = [
+            json.dumps({"delete": {"_index": self._index, "_id": chunk_id}})
+            for chunk_id in chunk_ids
+        ]
+        try:
+            response = await self._client.post(
+                f"{self._base_url}/_bulk?refresh=wait_for",
+                content="\n".join(lines) + "\n",
+                headers={"Content-Type": "application/x-ndjson"},
+            )
+            payload = response.json()
+            failures = [
+                item["delete"]
+                for item in payload.get("items", [])
+                if item.get("delete", {}).get("status") not in {200, 202, 404}
+            ]
+            if response.status_code != 200 or failures:
+                self._raise(response, "bulk delete OpenSearch")
+        except (httpx.HTTPError, ValueError) as exc:
+            raise ExternalServiceError(f"OpenSearch bulk delete failed: {exc}") from exc
+
     async def close(self) -> None:
         await self._client.aclose()
 

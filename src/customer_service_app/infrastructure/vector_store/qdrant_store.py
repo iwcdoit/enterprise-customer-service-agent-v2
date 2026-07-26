@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 from qdrant_client import AsyncQdrantClient
-from qdrant_client.models import Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams
+from qdrant_client.models import (
+    Distance,
+    FieldCondition,
+    Filter,
+    MatchValue,
+    PointIdsList,
+    PointStruct,
+    VectorParams,
+)
 
 from customer_service_app.core.config import Settings
 from customer_service_app.core.exceptions import ExternalServiceError
@@ -122,6 +130,21 @@ class QdrantKnowledgeVectorStore(KnowledgeVectorStore):
             )
         except Exception as exc:
             raise ExternalServiceError(f"Qdrant upsert failed: {exc}") from exc
+
+    async def delete_chunks(self, *, tenant_id: str, chunk_ids: list[str]) -> None:
+        """Delete obsolete chunk IDs; IDs are tenant-namespaced by the ingestion service."""
+
+        if not chunk_ids:
+            return
+        await self.ensure_collection()
+        try:
+            await self.client.delete(
+                collection_name=self._settings.qdrant_collection,
+                points_selector=PointIdsList(points=chunk_ids),
+                wait=True,
+            )
+        except Exception as exc:
+            raise ExternalServiceError(f"Qdrant delete failed: {exc}") from exc
 
     async def close(self) -> None:
         """关闭 Qdrant 异步客户端。"""

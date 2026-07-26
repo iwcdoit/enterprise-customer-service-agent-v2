@@ -84,3 +84,26 @@ async def test_bm25_upsert_preserves_structured_chunk_metadata() -> None:
     assert bulk_lines[1]["document_type"] == "policy"
     assert bulk_lines[1]["heading_path"] == ["售后", "退款"]
     await retriever.close()
+
+
+async def test_bm25_delete_is_idempotent_when_chunk_is_already_missing() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "HEAD":
+            return httpx.Response(200)
+        return httpx.Response(
+            200,
+            json={
+                "errors": True,
+                "items": [{"delete": {"_id": "missing", "status": 404}}],
+            },
+        )
+
+    retriever = OpenSearchBM25Retriever(
+        Settings(opensearch_enabled=True, opensearch_url="https://search.example.com")
+    )
+    await retriever._client.aclose()
+    retriever._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    await retriever.delete_chunks(tenant_id="tenant-a", chunk_ids=["missing"])
+
+    await retriever.close()

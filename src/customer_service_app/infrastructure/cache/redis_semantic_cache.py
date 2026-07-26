@@ -233,6 +233,40 @@ class RedisSemanticCache:
         )
         CACHE_OPERATIONS.labels(operation="update", result="stored").inc()
 
+    async def invalidate_by_chunk_ids(self, *, tenant_id: str, chunk_ids: list[str]) -> int:
+        """Delete cached answers whose evidence references changed knowledge chunks."""
+
+        invalidated = 0
+        expected_ids = set(chunk_ids)
+        if not expected_ids:
+            return invalidated
+        tenant_hash = hashlib.sha256(tenant_id.encode("utf-8")).hexdigest()[:12]
+        redis_client = self.redis
+        async for metadata_key in redis_client.scan_iter(
+            match=f"{tenant_hash}:*:meta:*",
+            count=100,
+        ):
+            raw_metadata = await redis_client.get(metadata_key)
+            if not raw_metadata:
+                continue
+            try:
+                metadata = json.loads(raw_metadata)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(metadata, dict):
+                continue
+            source_ids = metadata.get("source_chunk_ids") or []
+            if not expected_ids.intersection(str(item) for item in source_ids):
+                continue
+            prefix, cache_id = metadata_key.rsplit(":meta:", 1)
+            await redis_client.delete(
+                f"{prefix}:vec:{cache_id}",
+                f"{prefix}:answer:{cache_id}",
+                metadata_key,
+            )
+            invalidated += 1
+        return invalidated
+
     def _prefix(self, tenant_id: str, user_id: str) -> str:
         """生成 Redis key 前缀。
 

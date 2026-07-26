@@ -46,6 +46,8 @@ flowchart TD
 - 复杂请求触发有界 Planner/ReAct，简单问题跳过规划模型。
 - Qdrant/Milvus 向量召回与 OpenSearch BM25 并行召回，通过 RRF 融合，并支持可选 HTTP Reranker。
 - Markdown 标题、段落、句子边界和重叠窗口切块，向量索引与 BM25 索引共用 chunk ID。
+- 知识文档按内容哈希、版本和生效时间增量同步，下线时联动清理双索引与相关语义缓存。
+- 长期记忆支持来源校验、过期时间、用户查询/纠正/删除，以及用户级记忆开关。
 - Tool Registry、Business Gateway 和独立 after-sales MCP 服务，读写工具分级治理。
 - 人工队列、模拟坐席接管、处理结论和 Bot 恢复闭环。
 - 租户级模型、历史窗口、RAG 数量、Rerank 和缓存策略调整。
@@ -204,6 +206,16 @@ python scripts/ingest_docs.py knowledge_base --tenant-id <tenant-id>
 python scripts/run_after_sales_mcp_server.py
 uvicorn customer_service_app.main:app --host 0.0.0.0 --port <port>
 ```
+
+知识目录需要作为租户完整数据源进行对账时，显式开启缺失文档清理：
+
+```bash
+python scripts/ingest_docs.py knowledge_base \
+  --tenant-id <tenant-id> \
+  --prune-missing
+```
+
+该模式会把目录中已删除的文档同步下线，并清理对应向量、BM25 索引和语义缓存引用。
 
 完成入库后，可用真实检索链路计算 Hit@K 和 MRR：
 
