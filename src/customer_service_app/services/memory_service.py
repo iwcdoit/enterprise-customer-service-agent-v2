@@ -46,9 +46,20 @@ class MemoryService:
             user_id=user_id,
             conversation_id=conversation_id,
         )
-        memories = await self._memory_repo.list_memories(
-            tenant_id=tenant_id,
-            user_id=user_id,
+        memory_enabled = (
+            self._settings.long_term_memory_enabled
+            and await self._memory_repo.is_long_term_memory_enabled(
+                tenant_id=tenant_id,
+                user_id=user_id,
+            )
+        )
+        memories = (
+            await self._memory_repo.list_memories(
+                tenant_id=tenant_id,
+                user_id=user_id,
+            )
+            if memory_enabled
+            else []
         )
 
         chat_messages: list[ChatMessage] = []
@@ -85,6 +96,10 @@ class MemoryService:
                     source=memory.source,
                     verification_status=memory.verification_status,
                     evidence_ids=list(memory.evidence_json or []),
+                    sensitivity=memory.sensitivity,
+                    expires_at=memory.expires_at,
+                    created_at=memory.created_at,
+                    updated_at=memory.updated_at,
                 )
             )
 

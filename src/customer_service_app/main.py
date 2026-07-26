@@ -14,6 +14,7 @@ from customer_service_app.api.routes_health import router as health_router
 from customer_service_app.api.routes_graph import router as graph_router
 from customer_service_app.api.routes_human_support import router as human_support_router
 from customer_service_app.api.routes_metrics import router as metrics_router
+from customer_service_app.api.routes_memories import router as memories_router
 from customer_service_app.api.routes_ops import router as ops_router
 from customer_service_app.core.config import get_settings
 from customer_service_app.core.exceptions import AppError
@@ -60,6 +61,7 @@ def create_app() -> FastAPI:
     app.include_router(agent_runs_router, prefix=settings.api_prefix)
     app.include_router(graph_router, prefix=settings.api_prefix)
     app.include_router(human_support_router, prefix=settings.api_prefix)
+    app.include_router(memories_router, prefix=settings.api_prefix)
 
     if settings.metrics_enabled:
         app.include_router(metrics_router)

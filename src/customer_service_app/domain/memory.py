@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -38,6 +39,10 @@ class CustomerMemoryView(BaseModel):
     source: str = "system"
     verification_status: MemoryVerification
     evidence_ids: list[str] = Field(default_factory=list)
+    sensitivity: MemorySensitivity = "internal"
+    expires_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 class MemoryWriteCommand(BaseModel):
@@ -54,3 +59,31 @@ class MemoryWriteCommand(BaseModel):
     evidence_ids: list[str] = Field(default_factory=list)
     sensitivity: MemorySensitivity = "internal"
     expires_at: str | None = None
+
+
+class MemoryUpdateRequest(BaseModel):
+    """User-controlled update for one owned memory."""
+
+    memory_value: dict[str, Any]
+    expires_at: datetime | None = None
+
+
+class MemoryPreferenceUpdateRequest(BaseModel):
+    """Enable or disable long-term memory for one user."""
+
+    enabled: bool
+
+
+class MemoryPreferenceView(BaseModel):
+    """Current long-term memory consent returned to the client."""
+
+    tenant_id: str
+    user_id: str
+    enabled: bool
+    updated_at: datetime | None = None
+
+
+class MemoryCleanupView(BaseModel):
+    """Result of deleting expired long-term memories."""
+
+    deleted_count: int

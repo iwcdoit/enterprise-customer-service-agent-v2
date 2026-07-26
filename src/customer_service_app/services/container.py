@@ -109,7 +109,7 @@ class ApplicationContainer:
             conversation_service=ConversationService(session),
             confirmation_service=confirmation_service,
             memory_service=MemoryService(settings=self.settings, session=session),
-            long_term_memory_service=LongTermMemoryService(session),
+            long_term_memory_service=LongTermMemoryService(session, self.settings),
             cost_service=CostGovernanceService(settings=self.settings, session=session),
             trace_service=TraceService(session),
             planner_service=PlannerService(

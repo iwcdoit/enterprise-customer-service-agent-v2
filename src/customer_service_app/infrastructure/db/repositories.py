@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Any
 
-from sqlalchemy import case, or_, select
+from sqlalchemy import case, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.exc import StaleDataError
 
@@ -16,6 +16,7 @@ from customer_service_app.infrastructure.db.models import (
     ConversationSummary,
     CustomerMemory,
     HumanHandoffSession,
+    MemoryPreference,
     Message,
     Order,
     PendingAction,
@@ -455,6 +456,92 @@ class MemoryRepository:
 
         await self._session.flush()
         return memory
+
+    async def get_owned_memory(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        memory_id: str,
+    ) -> CustomerMemory | None:
+        """Load one memory only when it belongs to the current tenant and user."""
+
+        statement = select(CustomerMemory).where(
+            CustomerMemory.id == memory_id,
+            CustomerMemory.tenant_id == tenant_id,
+            CustomerMemory.user_id == user_id,
+        )
+        result = await self._session.execute(statement)
+        return result.scalars().one_or_none()
+
+    async def delete_memory(self, memory: CustomerMemory) -> None:
+        """Delete an already ownership-checked memory."""
+
+        await self._session.delete(memory)
+        await self._session.flush()
+
+    async def delete_expired_memories(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str | None = None,
+        now: datetime | None = None,
+    ) -> int:
+        """Delete expired records for one tenant, optionally restricted to one user."""
+
+        statement = delete(CustomerMemory).where(
+            CustomerMemory.tenant_id == tenant_id,
+            CustomerMemory.expires_at.is_not(None),
+            CustomerMemory.expires_at <= (now or datetime.now(timezone.utc)),
+        )
+        if user_id is not None:
+            statement = statement.where(CustomerMemory.user_id == user_id)
+        result = await self._session.execute(statement)
+        await self._session.flush()
+        return int(result.rowcount or 0)
+
+    async def get_preference(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+    ) -> MemoryPreference | None:
+        """Load the user's explicit long-term memory preference."""
+
+        statement = select(MemoryPreference).where(
+            MemoryPreference.tenant_id == tenant_id,
+            MemoryPreference.user_id == user_id,
+        )
+        result = await self._session.execute(statement)
+        return result.scalars().one_or_none()
+
+    async def is_long_term_memory_enabled(self, *, tenant_id: str, user_id: str) -> bool:
+        """Default to enabled until a user explicitly opts out."""
+
+        preference = await self.get_preference(tenant_id=tenant_id, user_id=user_id)
+        return preference is None or preference.long_term_memory_enabled
+
+    async def set_long_term_memory_enabled(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        enabled: bool,
+    ) -> MemoryPreference:
+        """Create or update the user's long-term memory consent."""
+
+        preference = await self.get_preference(tenant_id=tenant_id, user_id=user_id)
+        if preference is None:
+            preference = MemoryPreference(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                long_term_memory_enabled=enabled,
+            )
+            self._session.add(preference)
+        else:
+            preference.long_term_memory_enabled = enabled
+        await self._session.flush()
+        return preference
 
 
     async def list_memories(

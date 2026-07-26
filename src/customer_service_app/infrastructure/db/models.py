@@ -3,7 +3,20 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    JSON,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -219,7 +232,33 @@ class CustomerMemory(Base):
     )
 
     __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "user_id",
+            "memory_type",
+            "memory_key",
+            name="uq_customer_memory_owner_key",
+        ),
         Index("idx_customer_memory_lookup", "tenant_id", "user_id", "memory_type", "memory_key"),
+    )
+
+
+class MemoryPreference(Base):
+    """User-level consent controlling long-term memory reads and writes."""
+
+    __tablename__ = "memory_preferences"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=new_id)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    long_term_memory_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "user_id", name="uq_memory_preference_owner"),
     )
 
 
