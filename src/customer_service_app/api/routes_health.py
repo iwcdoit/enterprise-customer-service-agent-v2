@@ -21,10 +21,26 @@ async def live() -> HealthResponse:
 async def ready() -> dict:
     """就绪检查：检查关键配置是否已经填写。"""
     settings = get_settings()
+    vector_provider = settings.vector_store_provider.lower()
+    vector_configured = {
+        "qdrant": bool(settings.qdrant_url),
+        "milvus": bool(settings.milvus_uri),
+    }.get(vector_provider, False)
     checks = {
         "llm_configured": bool(settings.llm_api_key and settings.llm_base_url and settings.llm_model),
         "database_configured": bool(settings.database_url),
-        "rag_configured": bool(settings.qdrant_url and settings.embedding_base_url and settings.embedding_model),
+        "rag_configured": (
+            bool(
+                vector_configured
+                and settings.embedding_base_url
+                and settings.embedding_model
+            )
+            if settings.rag_enabled
+            else None
+        ),
+        "lexical_search_configured": (
+            bool(settings.opensearch_url) if settings.opensearch_enabled else None
+        ),
         "redis_configured": bool(settings.redis_url) if settings.semantic_cache_enabled else None,
         "checkpoint_configured": (
             bool(settings.graph_checkpoint_postgres_url)
@@ -43,6 +59,18 @@ async def ready() -> dict:
             bool(settings.langsmith_api_key and settings.langsmith_project)
             if settings.langsmith_tracing
             else None
+        ),
+        "security_configured": (
+            bool(
+                settings.jwt_secret_key
+                and settings.jwt_issuer
+                and settings.jwt_audience
+            )
+            if settings.security_enabled
+            else None
+        ),
+        "otel_configured": (
+            bool(settings.otel_exporter_otlp_endpoint) if settings.otel_enabled else None
         ),
     }
     return {"status": "ok" if all(v is not False for v in checks.values()) else "not_ready", "checks": checks}

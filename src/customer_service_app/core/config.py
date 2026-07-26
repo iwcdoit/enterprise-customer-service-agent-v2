@@ -85,6 +85,10 @@ class Settings(BaseSettings):
     rerank_timeout_seconds: int = 15
     retrieval_quality_min_score: float = 0.35
     retrieval_quality_min_chunks: int = 1
+    knowledge_chunk_max_chars: int = 900
+    knowledge_chunk_min_chars: int = 160
+    knowledge_chunk_overlap_chars: int = 120
+    knowledge_ingest_batch_size: int = 64
 
     serpapi_key: str = ""
     search_result_count: int = 5

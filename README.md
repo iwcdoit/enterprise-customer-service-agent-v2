@@ -49,6 +49,7 @@ flowchart TD
 - Tool Registry、Business Gateway 和独立 after-sales MCP 服务，读写工具分级治理。
 - 人工队列、模拟坐席接管、处理结论和 Bot 恢复闭环。
 - 租户级模型、历史窗口、RAG 数量、Rerank 和缓存策略调整。
+- Prometheus 运行指标、OpenTelemetry 分布式追踪，以及可选的 Grafana/Tempo 观测栈。
 
 ## 成本治理
 
@@ -171,6 +172,14 @@ MCP_AFTER_SALES_ENABLED=true
 MCP_AFTER_SALES_URL=https://mcp-after-sales.example.com/mcp
 MCP_APPROVAL_SIGNING_SECRET=<random-signing-secret>
 
+SECURITY_ENABLED=true
+JWT_SECRET_KEY=<random-jwt-secret>
+JWT_ISSUER=<identity-provider>
+JWT_AUDIENCE=<service-audience>
+
+METRICS_ENABLED=true
+OTEL_ENABLED=true
+OTEL_EXPORTER_OTLP_ENDPOINT=https://<otel-collector-host>:4318
 ```
 
 ## 部署说明
@@ -204,6 +213,17 @@ python scripts/evaluate_retrieval.py --tenant-id <tenant-id> --top-k 5 --rerank
 ```
 
 容器化部署时，通过目标平台注入环境变量，并使用项目中的 Dockerfile 或 Compose 模板启动服务。
+
+Compose 中的 OpenSearch、PostgreSQL Checkpointer 和观测组件使用可选 profile，
+可以按部署需要组合启动：
+
+```bash
+docker compose --profile search --profile durable --profile observability up -d
+```
+
+Prometheus 从 `/metrics` 拉取 HTTP、Graph、LLM、工具、MCP、缓存、Planner 和检索指标；
+OpenTelemetry 将 FastAPI 与 HTTP 客户端 trace 发送到 OTLP Collector，再由 Tempo 保存并在
+Grafana 中查询。生产环境应在网关层限制 `/metrics` 和 Grafana 的访问范围。
 
 ## MCP 服务
 

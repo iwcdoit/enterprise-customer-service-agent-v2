@@ -9,6 +9,7 @@ from langgraph.types import Command
 
 from customer_service_app.core.config import Settings
 from customer_service_app.domain.schemas import GraphStateView, GraphTaskView
+from customer_service_app.observability.metrics import GRAPH_RUNS
 from customer_service_app.workflows.context import CustomerServiceGraphContext
 from customer_service_app.workflows.customer_service_graph import build_customer_service_graph
 
@@ -108,12 +109,18 @@ class CustomerServiceGraphRuntime:
             "thread_id": resolved_thread_id,
         }
 
-        return await self._graph.ainvoke(
-            initial_state,
-            config=config,
-            context=context,
-            durability=self._durability(),
-        )
+        try:
+            result = await self._graph.ainvoke(
+                initial_state,
+                config=config,
+                context=context,
+                durability=self._durability(),
+            )
+        except Exception:
+            GRAPH_RUNS.labels(status="error").inc()
+            raise
+        GRAPH_RUNS.labels(status=self._metric_status(result)).inc()
+        return result
 
     async def resume(
         self,
@@ -126,12 +133,18 @@ class CustomerServiceGraphRuntime:
 
         resume_command = Command(resume=decision)
 
-        return await self._graph.ainvoke(
-            resume_command,
-            config=self._config(thread_id),
-            context=context,
-            durability=self._durability(),
-        )
+        try:
+            result = await self._graph.ainvoke(
+                resume_command,
+                config=self._config(thread_id),
+                context=context,
+                durability=self._durability(),
+            )
+        except Exception:
+            GRAPH_RUNS.labels(status="error").inc()
+            raise
+        GRAPH_RUNS.labels(status=self._metric_status(result)).inc()
+        return result
 
     async def get_state(self, *, thread_id: str) -> GraphStateView:
         """Return a sanitized checkpoint snapshot for the operations console."""
@@ -216,3 +229,14 @@ class CustomerServiceGraphRuntime:
         """Return LangGraph durability mode from configuration."""
 
         return cast(Any, self._settings.graph_durability)
+
+    @staticmethod
+    def _metric_status(result: dict[str, Any]) -> str:
+        """把动态业务状态收敛为有限指标标签，避免标签基数失控。"""
+
+        status = str(result.get("status") or "").lower()
+        if status in {"awaiting_confirmation", "pending_confirmation", "interrupted"}:
+            return "interrupted"
+        if status in {"failed", "error"}:
+            return "failed"
+        return "completed"

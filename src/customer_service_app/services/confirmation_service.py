@@ -14,6 +14,7 @@ from customer_service_app.infrastructure.db.models import PendingAction
 from customer_service_app.infrastructure.db.repositories import PendingActionRepository
 from customer_service_app.infrastructure.mcp.approval import create_approval_token
 from customer_service_app.infrastructure.search.serpapi_client import SerpApiSearchClient
+from customer_service_app.observability.metrics import HIL_DECISIONS, HIL_WAIT_SECONDS
 from customer_service_app.services.business_gateway import BusinessGateway
 from customer_service_app.services.tool_registry import ToolExecutionContext, ToolRegistry, ToolSpec
 
@@ -163,9 +164,11 @@ class ConfirmationService:
             )
         except Exception as exc:
             await self._repo.mark_failed(action, {"error": str(exc)})
+            self._record_decision(action=action, decision="failed")
             raise
 
         await self._repo.mark_executed(action, result)
+        self._record_decision(action=action, decision="approved")
         return result
 
     async def reject(
@@ -180,6 +183,7 @@ class ConfirmationService:
         self._ensure_pending_and_not_expired(action)
 
         await self._repo.mark_rejected(action)
+        self._record_decision(action=action, decision="rejected")
         return {
             "confirmation_id": action.id,
             "status": "rejected",
@@ -275,3 +279,15 @@ class ConfirmationService:
                 code="confirmation_expired",
                 status_code=409,
             )
+
+    @staticmethod
+    def _record_decision(*, action: PendingAction, decision: str) -> None:
+        """记录确认结果和等待时长，不把动作参数写入指标标签。"""
+
+        HIL_DECISIONS.labels(decision=decision).inc()
+        created_at = getattr(action, "created_at", None)
+        if created_at is not None:
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            waited = max((datetime.now(timezone.utc) - created_at).total_seconds(), 0.0)
+            HIL_WAIT_SECONDS.observe(waited)

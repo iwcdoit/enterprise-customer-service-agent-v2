@@ -13,6 +13,7 @@ from customer_service_app.domain.planning import AgentPlan, PlanStep
 from customer_service_app.domain.query_rewrite import QueryRewriteResult
 from customer_service_app.domain.schemas import ChatRequest
 from customer_service_app.infrastructure.llm.base import LLMClient, LLMResponse
+from customer_service_app.observability.metrics import PLANNER_RUNS
 from customer_service_app.services.tool_registry import ToolRegistry, ToolSpec
 
 
@@ -91,6 +92,7 @@ class PlannerService:
         """Generate and validate a plan, falling back deterministically on malformed output."""
         goal = (resolved_question or request.question).strip()
         if not self.needs_plan(request, resolved_question=goal):
+            PLANNER_RUNS.labels(result="bypass").inc()
             return None, None
         rewrite = (
             QueryRewriteResult.model_validate(rewrite_result)
@@ -190,6 +192,7 @@ class PlannerService:
                 tool_choice={"type": "function", "function": {"name": "submit_plan"}},
             )
         except Exception:
+            PLANNER_RUNS.labels(result="rule_fallback").inc()
             return (
                 self.build_rule_based_plan(
                     request=request,
@@ -218,6 +221,9 @@ class PlannerService:
                 response.prompt_tokens = prompt_tokens
                 response.completion_tokens = completion_tokens
                 response.total_tokens = total_tokens
+                PLANNER_RUNS.labels(
+                    result="generated" if attempt == 0 else "repaired"
+                ).inc()
                 return plan, response
             except (
                 json.JSONDecodeError,
@@ -258,6 +264,7 @@ class PlannerService:
         response.prompt_tokens = prompt_tokens
         response.completion_tokens = completion_tokens
         response.total_tokens = total_tokens
+        PLANNER_RUNS.labels(result="rule_fallback").inc()
         return plan, response
 
 

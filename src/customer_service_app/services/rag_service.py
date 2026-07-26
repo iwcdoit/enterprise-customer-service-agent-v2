@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from time import perf_counter
 
 from customer_service_app.core.config import Settings
 from customer_service_app.domain.query_rewrite import RetrievalQuality
@@ -11,6 +12,11 @@ from customer_service_app.infrastructure.embeddings.base import EmbeddingClient
 from customer_service_app.infrastructure.lexical_search.base import LexicalKnowledgeRetriever
 from customer_service_app.infrastructure.rerank.base import KnowledgeReranker
 from customer_service_app.infrastructure.vector_store.base import KnowledgeVectorStore
+from customer_service_app.observability.metrics import (
+    RETRIEVAL_CALLS,
+    RETRIEVAL_LATENCY,
+    RETRIEVAL_RESULTS,
+)
 
 
 class RagService:
@@ -47,11 +53,14 @@ class RagService:
         """并发召回两路候选，融合后只把最终 top_k 交给大模型。"""
 
         if not self._settings.rag_enabled:
+            RETRIEVAL_CALLS.labels(mode="disabled", status="skipped").inc()
             return []
         resolved_top_k = top_k or self._settings.rag_top_k
         mode = self._route(question)
         if mode == "none":
+            RETRIEVAL_CALLS.labels(mode="tool", status="skipped").inc()
             return []
+        started = perf_counter()
 
         candidate_k = max(
             resolved_top_k,
@@ -97,20 +106,54 @@ class RagService:
 
         # 两路都失败时必须显式报错；只有一路失败时使用另一条结果降级返回。
         if not dense and not lexical and any(isinstance(item, Exception) for item in results):
+            self._record_retrieval(
+                mode=mode,
+                status="error",
+                result_count=0,
+                started=started,
+            )
             raise next(item for item in results if isinstance(item, Exception))
 
         candidates = self._rrf(dense=dense, lexical=lexical)
         if use_rerank and self._reranker is not None and candidates:
             try:
-                return await self._reranker.rerank(
+                reranked = await self._reranker.rerank(
                     query=question,
                     chunks=candidates,
                     top_k=resolved_top_k,
                 )
+                self._record_retrieval(
+                    mode=mode,
+                    status="success",
+                    result_count=len(reranked),
+                    started=started,
+                )
+                return reranked
             except Exception as exc:
                 # Reranker 是质量增强，不应成为客服链路单点。
                 logging.warning("rerank degraded to RRF order: %s", exc)
-        return candidates[:resolved_top_k]
+        result = candidates[:resolved_top_k]
+        self._record_retrieval(
+            mode=mode,
+            status="degraded" if any(isinstance(item, Exception) for item in results) else "success",
+            result_count=len(result),
+            started=started,
+        )
+        return result
+
+    @staticmethod
+    def _record_retrieval(
+        *,
+        mode: str,
+        status: str,
+        result_count: int,
+        started: float,
+    ) -> None:
+        """记录有限标签的检索指标，禁止把问题文本或租户 ID 放进标签。"""
+
+        RETRIEVAL_CALLS.labels(mode=mode, status=status).inc()
+        RETRIEVAL_LATENCY.labels(mode=mode).observe(perf_counter() - started)
+        RETRIEVAL_RESULTS.labels(mode=mode).observe(result_count)
 
     def evaluate_quality(
         self,

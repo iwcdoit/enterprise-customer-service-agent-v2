@@ -10,6 +10,7 @@ import redis.asyncio as redis
 
 from customer_service_app.core.config import Settings
 from customer_service_app.infrastructure.embeddings.base import EmbeddingClient
+from customer_service_app.observability.metrics import CACHE_OPERATIONS
 
 
 @dataclass(slots=True)
@@ -110,6 +111,7 @@ class RedisSemanticCache:
 
         """
         if not context.is_reusable():
+            CACHE_OPERATIONS.labels(operation="lookup", result="bypass").inc()
             return None
 
         prefix = self._prefix(tenant_id, user_id)
@@ -123,6 +125,7 @@ class RedisSemanticCache:
             similarity=1.0,
         )
         if exact is not None:
+            CACHE_OPERATIONS.labels(operation="lookup", result="exact_hit").inc()
             return exact
 
         query_vector = await self._embedding_client.embed_query(question)
@@ -173,6 +176,10 @@ class RedisSemanticCache:
             if best is None or entry.similarity > best.similarity:
                 best = entry
 
+        CACHE_OPERATIONS.labels(
+            operation="lookup",
+            result="semantic_hit" if best is not None else "miss",
+        ).inc()
         return best
 
     async def update(
@@ -189,6 +196,7 @@ class RedisSemanticCache:
         normalized_question = question.strip().lower()
 
         if not normalized_question or not answer or not context.is_reusable():
+            CACHE_OPERATIONS.labels(operation="update", result="bypass").inc()
             return
 
         vector = await self._embedding_client.embed_query(question)
@@ -223,6 +231,7 @@ class RedisSemanticCache:
             ),
             ex=ttl,
         )
+        CACHE_OPERATIONS.labels(operation="update", result="stored").inc()
 
     def _prefix(self, tenant_id: str, user_id: str) -> str:
         """生成 Redis key 前缀。

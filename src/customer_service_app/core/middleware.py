@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 import uuid
 
@@ -11,6 +12,7 @@ from customer_service_app.observability.metrics import HTTP_LATENCY, HTTP_REQUES
 
 
 logger = get_logger("customer_service_app.request")
+_REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):
@@ -18,39 +20,44 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """执行请求链并记录结果。"""
-        request_id = request.headers.get("x-request-id", str(uuid.uuid4()))
+        incoming_request_id = request.headers.get("x-request-id", "")
+        request_id = (
+            incoming_request_id
+            if _REQUEST_ID_PATTERN.fullmatch(incoming_request_id)
+            else str(uuid.uuid4())
+        )
         request.state.request_id = request_id
 
         started = time.perf_counter()
-        response = await call_next(request)
+        status_code = 500
+        try:
+            response = await call_next(request)
+            status_code = response.status_code
+            response.headers["x-request-id"] = request_id
+            return response
+        finally:
+            elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+            route = request.scope.get("route")
+            # 使用路由模板而非原始 URL，避免 Prometheus 标签基数失控。
+            path_template = getattr(route, "path", request.url.path)
 
-        elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
-        route = request.scope.get("route")
-        # 使用路由模板而非原始 URL，避免 Prometheus 标签基数失控。
-        path_template = getattr(route, "path", request.url.path)
-
-        HTTP_REQUESTS.labels(
-            method=request.method,
-            path=path_template,
-            status=str(response.status_code),
-        ).inc()
-
-        HTTP_LATENCY.labels(method=request.method, path=path_template).observe(
-            elapsed_ms / 1000
-        )
-
-        response.headers["x-request-id"] = request_id
-
-        logger.info(
-            "request_finished",
-            extra={
-                "extra_fields": {
-                    "request_id": request_id,
-                    "method": request.method,
-                    "path": request.url.path,
-                    "status_code": response.status_code,
-                    "elapsed_ms": elapsed_ms,
-                }
-            },
-        )
-        return response
+            HTTP_REQUESTS.labels(
+                method=request.method,
+                path=path_template,
+                status=str(status_code),
+            ).inc()
+            HTTP_LATENCY.labels(method=request.method, path=path_template).observe(
+                elapsed_ms / 1000
+            )
+            logger.info(
+                "request_finished",
+                extra={
+                    "extra_fields": {
+                        "request_id": request_id,
+                        "method": request.method,
+                        "path": request.url.path,
+                        "status_code": status_code,
+                        "elapsed_ms": elapsed_ms,
+                    }
+                },
+            )

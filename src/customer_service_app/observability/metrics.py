@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from time import perf_counter
 from typing import Iterator
 
-from prometheus_client import Counter, Gauge, Histogram
+from prometheus_client import Counter, Histogram
 
 
 HTTP_REQUESTS = Counter(
@@ -26,10 +26,6 @@ GRAPH_NODE_LATENCY = Histogram(
     "customer_service_graph_node_duration_seconds",
     "LangGraph node execution latency.",
     ["node"],
-)
-HIL_WAITING = Gauge(
-    "customer_service_hil_waiting",
-    "Current number of graph runs waiting for human confirmation.",
 )
 HIL_DECISIONS = Counter(
     "customer_service_hil_decisions_total",
@@ -69,6 +65,32 @@ MCP_LATENCY = Histogram(
     "customer_service_mcp_call_duration_seconds",
     "MCP call latency.",
     ["server", "tool"],
+)
+CACHE_OPERATIONS = Counter(
+    "customer_service_semantic_cache_operations_total",
+    "Semantic cache operations by operation and bounded result.",
+    ["operation", "result"],
+)
+RETRIEVAL_CALLS = Counter(
+    "customer_service_retrieval_calls_total",
+    "Knowledge retrieval calls by route and result.",
+    ["mode", "status"],
+)
+RETRIEVAL_LATENCY = Histogram(
+    "customer_service_retrieval_duration_seconds",
+    "Knowledge retrieval latency.",
+    ["mode"],
+)
+RETRIEVAL_RESULTS = Histogram(
+    "customer_service_retrieval_result_chunks",
+    "Number of knowledge chunks returned after fusion and reranking.",
+    ["mode"],
+    buckets=(0, 1, 2, 3, 5, 8, 13, 21),
+)
+PLANNER_RUNS = Counter(
+    "customer_service_planner_runs_total",
+    "Planner executions by bounded outcome.",
+    ["result"],
 )
 
 

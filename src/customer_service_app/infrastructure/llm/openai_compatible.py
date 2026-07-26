@@ -9,6 +9,7 @@ from customer_service_app.core.config import Settings
 from customer_service_app.core.exceptions import ExternalServiceError
 from customer_service_app.infrastructure.llm.base import LLMClient, LLMResponse, LLMToolCall
 from customer_service_app.observability.langsmith import wrap_openai_client
+from customer_service_app.observability.metrics import LLM_CALLS, LLM_TOKENS
 
 
 class OpenAICompatibleLLMClient(LLMClient):
@@ -49,7 +50,9 @@ class OpenAICompatibleLLMClient(LLMClient):
         kwargs: dict[str, Any] = {
             "model": model or self._settings.llm_model,
             "messages": messages,
-            "temperature": temperature or self._settings.llm_temperature,
+            "temperature": (
+                temperature if temperature is not None else self._settings.llm_temperature
+            ),
         }
         if tools is not None:
             kwargs["tools"] = tools
@@ -59,7 +62,8 @@ class OpenAICompatibleLLMClient(LLMClient):
         try:
             response = await self.client.chat.completions.create(**kwargs)
         except Exception as e:
-            logging.info("llm chat create error:{}",e)
+            LLM_CALLS.labels(model=selected_model, status="error").inc()
+            logging.info("llm chat create error: %s", e)
             raise ExternalServiceError(f"llm request error: {e}") from e
         choice = response.choices[0]
         message = choice.message
@@ -75,6 +79,14 @@ class OpenAICompatibleLLMClient(LLMClient):
             )
 
         usage = response.usage
+        LLM_CALLS.labels(model=selected_model, status="success").inc()
+        if usage is not None:
+            LLM_TOKENS.labels(model=selected_model, kind="prompt").inc(
+                usage.prompt_tokens
+            )
+            LLM_TOKENS.labels(model=selected_model, kind="completion").inc(
+                usage.completion_tokens
+            )
         return LLMResponse(
             content=message.content or "",
             tool_calls=tool_calls,
@@ -104,6 +116,7 @@ class OpenAICompatibleLLMClient(LLMClient):
             ),
             "stream": True,
         }
+        selected_model = str(kwargs["model"])
 
         try:
             stream = await self.client.chat.completions.create(**kwargs)
@@ -117,7 +130,9 @@ class OpenAICompatibleLLMClient(LLMClient):
                 if delta.content:
                     yield delta.content
 
+            LLM_CALLS.labels(model=selected_model, status="success").inc()
         except Exception as exc:
+            LLM_CALLS.labels(model=selected_model, status="error").inc()
             logging.info("llm stream chat create error: %s", exc)
             raise ExternalServiceError(f"llm stream request error: {exc}") from exc
 

@@ -44,6 +44,35 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
 
+  checkpoint-postgres:
+    image: postgres:16.6
+    container_name: ecs_checkpoint_postgres
+    profiles: ["durable"]
+    environment:
+      POSTGRES_DB: graph_checkpoint
+      POSTGRES_USER: graph
+      POSTGRES_PASSWORD: ${GRAPH_CHECKPOINT_POSTGRES_PASSWORD:-change_me}
+    volumes:
+      - checkpoint_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U graph -d graph_checkpoint"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  opensearch:
+    image: opensearchproject/opensearch:2.17.1
+    container_name: ecs_opensearch
+    profiles: ["search"]
+    environment:
+      discovery.type: single-node
+      plugins.security.disabled: "true"
+      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    ports:
+      - "9200:9200"
+
   after-sales-mcp:
     build: ./mcp_services/after_sales_server
     container_name: ecs_after_sales_mcp
@@ -79,6 +108,7 @@ services:
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
       EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-1024}
       RAG_ENABLED: ${RAG_ENABLED:-true}
+      KNOWLEDGE_CORPUS_VERSION: ${KNOWLEDGE_CORPUS_VERSION:-v1}
       SEMANTIC_CACHE_ENABLED: ${SEMANTIC_CACHE_ENABLED:-false}
       DATABASE_URL: ${DATABASE_URL:-mysql+aiomysql://customer_service:customer_service@mysql:3306/customer_service?charset=utf8mb4}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
@@ -89,6 +119,14 @@ services:
       MILVUS_URI: ${MILVUS_URI:-}
       MILVUS_TOKEN: ${MILVUS_TOKEN:-}
       MILVUS_COLLECTION: ${MILVUS_COLLECTION:-customer_service_knowledge}
+      RETRIEVAL_MODE: ${RETRIEVAL_MODE:-hybrid}
+      OPENSEARCH_ENABLED: ${OPENSEARCH_ENABLED:-false}
+      OPENSEARCH_URL: ${OPENSEARCH_URL:-http://opensearch:9200}
+      OPENSEARCH_INDEX: ${OPENSEARCH_INDEX:-customer_service_knowledge}
+      RERANK_ENABLED: ${RERANK_ENABLED:-false}
+      RERANK_BASE_URL: ${RERANK_BASE_URL:-}
+      RERANK_API_KEY: ${RERANK_API_KEY:-}
+      RERANK_MODEL: ${RERANK_MODEL:-}
       SERPAPI_KEY: ${SERPAPI_KEY:-}
       MCP_AFTER_SALES_ENABLED: ${MCP_AFTER_SALES_ENABLED:-false}
       MCP_AFTER_SALES_TRANSPORT: ${MCP_AFTER_SALES_TRANSPORT:-streamable_http}
@@ -96,7 +134,19 @@ services:
       MCP_TIMEOUT_SECONDS: ${MCP_TIMEOUT_SECONDS:-20}
       MCP_APPROVAL_SIGNING_SECRET: ${MCP_APPROVAL_SIGNING_SECRET:-local_approval_secret_change_me}
       MCP_APPROVAL_ISSUER: ${MCP_APPROVAL_ISSUER:-customer-service-agent}
+      GRAPH_CHECKPOINTER: ${GRAPH_CHECKPOINTER:-memory}
+      GRAPH_CHECKPOINT_POSTGRES_URL: ${GRAPH_CHECKPOINT_POSTGRES_URL:-postgresql://graph:change_me@checkpoint-postgres:5432/graph_checkpoint}
+      SECURITY_ENABLED: ${SECURITY_ENABLED:-false}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
+      JWT_ISSUER: ${JWT_ISSUER:-}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-}
+      METRICS_ENABLED: ${METRICS_ENABLED:-true}
+      LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-enterprise-customer-service-agent-v2}
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-customer-service-agent}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
     ports:
       - "8000:8000"
     depends_on:
@@ -109,7 +159,61 @@ services:
       after-sales-mcp:
         condition: service_started
 
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.117.0
+    container_name: ecs_otel_collector
+    profiles: ["observability"]
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./deploy/observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    depends_on:
+      - tempo
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: ecs_tempo
+    profiles: ["observability"]
+    command: ["-config.file=/etc/tempo/config.yaml"]
+    volumes:
+      - ./deploy/observability/tempo.yaml:/etc/tempo/config.yaml:ro
+      - tempo_data:/var/tempo
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: ecs_prometheus
+    profiles: ["observability"]
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    volumes:
+      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: ecs_grafana
+    profiles: ["observability"]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change_me}
+    volumes:
+      - ./deploy/observability/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - tempo
+
 volumes:
   mysql_data:
   redis_data:
   qdrant_data:
+  checkpoint_postgres_data:
+  opensearch_data:
+  tempo_data:
+  prometheus_data:
+  grafana_data:
