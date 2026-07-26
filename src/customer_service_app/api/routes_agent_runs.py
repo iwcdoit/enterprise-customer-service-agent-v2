@@ -3,7 +3,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from customer_service_app.api.dependencies import require_roles
 from customer_service_app.core.exceptions import AppError
+from customer_service_app.core.security import CurrentPrincipal, authorize_identity
 from customer_service_app.domain.schemas import AgentRunStepView, AgentRunView
 from customer_service_app.infrastructure.db.repositories import AgentRunRepository
 from customer_service_app.infrastructure.db.session import get_db_session
@@ -20,6 +22,7 @@ router = APIRouter(prefix="/agent-runs", tags=["agent-runs"])
 async def get_agent_run(
     run_id: str,
     session: AsyncSession = Depends(get_db_session),
+    principal: CurrentPrincipal = Depends(require_roles("operator", "admin")),
 ) -> AgentRunView:
     """Return persisted trace information for one Agent request."""
 
@@ -29,6 +32,11 @@ async def get_agent_run(
     if run is None:
         raise AppError("Agent run not found", code="agent_run_not_found", status_code=404)
 
+    authorize_identity(
+        principal,
+        tenant_id=run.tenant_id,
+        user_id=run.user_id,
+    )
     steps = await repo.list_steps(run_id=run_id)
 
     return AgentRunView(

@@ -3,7 +3,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from customer_service_app.api.dependencies import require_roles
 from customer_service_app.core.exceptions import NotFoundError
+from customer_service_app.core.security import CurrentPrincipal, authorize_identity
 from customer_service_app.domain.schemas import (
     ConversationCreateRequest,
     ConversationMessageView,
@@ -21,6 +23,9 @@ router = APIRouter(prefix="/conversations", tags=["conversations"])
 async def create_conversation(
     request: ConversationCreateRequest,
     session: AsyncSession = Depends(get_db_session),
+    principal: CurrentPrincipal = Depends(
+        require_roles("customer", "agent", "operator", "admin")
+    ),
 ) -> ConversationView:
     """创建新会话。
 
@@ -28,10 +33,15 @@ async def create_conversation(
     保持 API 层薄、业务层清晰。
     """
     service = ConversationService(session)
-
-    conversation = await service.ensure_conversation(
+    tenant_id, user_id = authorize_identity(
+        principal,
         tenant_id=request.tenant_id,
         user_id=request.user_id,
+    )
+
+    conversation = await service.ensure_conversation(
+        tenant_id=tenant_id,
+        user_id=user_id,
         conversation_id=None,
         first_question=request.title,
     )
@@ -53,8 +63,16 @@ async def list_conversations(
     tenant_id: str,
     user_id: str,
     session: AsyncSession = Depends(get_db_session),
+    principal: CurrentPrincipal = Depends(
+        require_roles("customer", "agent", "operator", "admin")
+    ),
 ) -> list[ConversationView]:
     """查询某个用户的会话列表。"""
+    tenant_id, user_id = authorize_identity(
+        principal,
+        tenant_id=tenant_id,
+        user_id=user_id,
+    )
     conversations = await ConversationService(session).list_conversations(
         tenant_id=tenant_id,
         user_id=user_id,
@@ -79,9 +97,17 @@ async def list_conversation_messages(
     tenant_id: str,
     user_id: str,
     session: AsyncSession = Depends(get_db_session),
+    principal: CurrentPrincipal = Depends(
+        require_roles("customer", "agent", "operator", "admin")
+    ),
 ) -> list[ConversationMessageView]:
     """Restore one owned conversation in the customer-service workspace."""
 
+    tenant_id, user_id = authorize_identity(
+        principal,
+        tenant_id=tenant_id,
+        user_id=user_id,
+    )
     service = ConversationService(session)
     conversation = await service.ensure_conversation(
         tenant_id=tenant_id,

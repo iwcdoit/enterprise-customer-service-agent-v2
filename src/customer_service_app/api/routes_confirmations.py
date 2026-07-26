@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from customer_service_app.api.dependencies import get_customer_service_agent
+from customer_service_app.api.dependencies import get_customer_service_agent, require_roles
+from customer_service_app.core.security import CurrentPrincipal, authorize_identity
 from customer_service_app.domain.confirmations import (
     ConfirmationDecisionRequest,
     ConfirmationDecisionResponse,
@@ -25,9 +26,15 @@ async def get_confirmation(
     tenant_id: str,
     user_id: str,
     agent: CustomerServiceAgent = Depends(get_customer_service_agent),
+    principal: CurrentPrincipal = Depends(require_roles("customer", "admin")),
 ) -> PendingActionView:
     """Load the pending action that owns the interrupted graph thread."""
 
+    tenant_id, user_id = authorize_identity(
+        principal,
+        tenant_id=tenant_id,
+        user_id=user_id,
+    )
     return await agent.get_confirmation(
         tenant_id=tenant_id,
         user_id=user_id,
@@ -40,12 +47,18 @@ async def approve_confirmation(
     confirmation_id: str,
     request: ConfirmationDecisionRequest,
     agent: CustomerServiceAgent = Depends(get_customer_service_agent),
+    principal: CurrentPrincipal = Depends(require_roles("customer", "admin")),
 ) -> ConfirmationDecisionResponse:
     """Resume LangGraph with an approval decision."""
 
-    response = await agent.resume_confirmation(
+    tenant_id, user_id = authorize_identity(
+        principal,
         tenant_id=request.tenant_id,
         user_id=request.user_id,
+    )
+    response = await agent.resume_confirmation(
+        tenant_id=tenant_id,
+        user_id=user_id,
         confirmation_id=confirmation_id,
         decision="approve",
         reason=request.reason,
@@ -75,12 +88,18 @@ async def reject_confirmation(
     confirmation_id: str,
     request: ConfirmationDecisionRequest,
     agent: CustomerServiceAgent = Depends(get_customer_service_agent),
+    principal: CurrentPrincipal = Depends(require_roles("customer", "admin")),
 ) -> ConfirmationDecisionResponse:
     """Resume LangGraph with a rejection decision."""
 
-    response = await agent.resume_confirmation(
+    tenant_id, user_id = authorize_identity(
+        principal,
         tenant_id=request.tenant_id,
         user_id=request.user_id,
+    )
+    response = await agent.resume_confirmation(
+        tenant_id=tenant_id,
+        user_id=user_id,
         confirmation_id=confirmation_id,
         decision="reject",
         reason=request.reason,

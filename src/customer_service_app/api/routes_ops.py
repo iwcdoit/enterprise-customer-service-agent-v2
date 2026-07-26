@@ -6,7 +6,9 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from customer_service_app.api.dependencies import require_roles
 from customer_service_app.core.config import get_settings
+from customer_service_app.core.security import CurrentPrincipal, authorize_identity
 from customer_service_app.domain.schemas import (
     PendingActionSummaryView,
     RuntimeConfigView,
@@ -32,7 +34,9 @@ async def ops_console() -> HTMLResponse:
 
 
 @router.get("/ops/api/runtime", response_model=RuntimeConfigView)
-async def runtime_config() -> RuntimeConfigView:
+async def runtime_config(
+    _: CurrentPrincipal = Depends(require_roles("operator", "admin")),
+) -> RuntimeConfigView:
     """Return a safe runtime configuration snapshot for the ops console."""
 
     return OpsService(settings=get_settings()).runtime_config()
@@ -43,6 +47,7 @@ async def tenant_strategy(
     tenant_id: str,
     used_tokens: int | None = Query(default=None, ge=0),
     session: AsyncSession = Depends(get_db_session),
+    principal: CurrentPrincipal = Depends(require_roles("operator", "admin")),
 ) -> TenantStrategyView:
     """Preview the selected cost strategy for one tenant.
 
@@ -50,6 +55,7 @@ async def tenant_strategy(
     可以观察 basic/standard/premium 在预算接近阈值时如何降级。
     """
 
+    tenant_id, _ = authorize_identity(principal, tenant_id=tenant_id)
     return await OpsService(
         settings=get_settings(),
         session=session,
@@ -64,9 +70,15 @@ async def pending_action_summary(
     tenant_id: str,
     user_id: str,
     session: AsyncSession = Depends(get_db_session),
+    principal: CurrentPrincipal = Depends(require_roles("operator", "admin")),
 ) -> PendingActionSummaryView:
     """Return pending confirmation summary for one tenant/user."""
 
+    tenant_id, user_id = authorize_identity(
+        principal,
+        tenant_id=tenant_id,
+        user_id=user_id,
+    )
     return await OpsService(
         settings=get_settings(),
         session=session,

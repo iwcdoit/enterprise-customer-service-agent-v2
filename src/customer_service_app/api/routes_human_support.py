@@ -3,6 +3,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from customer_service_app.api.dependencies import require_roles
+from customer_service_app.core.security import (
+    CurrentPrincipal,
+    authorize_actor,
+    authorize_identity,
+)
 from customer_service_app.domain.human_support import (
     HumanAssignmentRequest,
     HumanHandoffView,
@@ -23,7 +29,9 @@ async def list_handoff_queue(
     status: list[str] | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=200),
     session: AsyncSession = Depends(get_db_session),
+    principal: CurrentPrincipal = Depends(require_roles("agent", "operator", "admin")),
 ) -> list[HumanHandoffView]:
+    tenant_id, _ = authorize_identity(principal, tenant_id=tenant_id)
     service = HumanSupportService(session)
     items = await service.list_queue(tenant_id=tenant_id, statuses=status, limit=limit)
     return [service.to_view(item) for item in items]
@@ -34,12 +42,15 @@ async def assign_handoff(
     handoff_id: str,
     request: HumanAssignmentRequest,
     session: AsyncSession = Depends(get_db_session),
+    principal: CurrentPrincipal = Depends(require_roles("agent", "operator", "admin")),
 ) -> HumanHandoffView:
+    tenant_id, _ = authorize_identity(principal, tenant_id=request.tenant_id)
+    agent_id = authorize_actor(principal, actor_id=request.agent_id)
     service = HumanSupportService(session)
     item = await service.assign(
-        tenant_id=request.tenant_id,
+        tenant_id=tenant_id,
         handoff_id=handoff_id,
-        agent_id=request.agent_id,
+        agent_id=agent_id,
         expected_version=request.expected_version,
     )
     await session.commit()
@@ -51,12 +62,15 @@ async def send_human_message(
     handoff_id: str,
     request: HumanMessageRequest,
     session: AsyncSession = Depends(get_db_session),
+    principal: CurrentPrincipal = Depends(require_roles("agent", "operator", "admin")),
 ) -> HumanHandoffView:
+    tenant_id, _ = authorize_identity(principal, tenant_id=request.tenant_id)
+    agent_id = authorize_actor(principal, actor_id=request.agent_id)
     service = HumanSupportService(session)
     item = await service.send_agent_message(
-        tenant_id=request.tenant_id,
+        tenant_id=tenant_id,
         handoff_id=handoff_id,
-        agent_id=request.agent_id,
+        agent_id=agent_id,
         content=request.content,
     )
     await session.commit()
@@ -68,12 +82,15 @@ async def submit_human_resolution(
     handoff_id: str,
     request: HumanResolutionRequest,
     session: AsyncSession = Depends(get_db_session),
+    principal: CurrentPrincipal = Depends(require_roles("agent", "operator", "admin")),
 ) -> HumanHandoffView:
+    tenant_id, _ = authorize_identity(principal, tenant_id=request.tenant_id)
+    agent_id = authorize_actor(principal, actor_id=request.agent_id)
     service = HumanSupportService(session)
     item = await service.submit_resolution(
-        tenant_id=request.tenant_id,
+        tenant_id=tenant_id,
         handoff_id=handoff_id,
-        agent_id=request.agent_id,
+        agent_id=agent_id,
         resolution_code=request.resolution_code,
         summary=request.summary,
         next_mode=request.next_mode,
@@ -88,12 +105,15 @@ async def confirm_human_resolution(
     handoff_id: str,
     request: HumanResolutionConfirmationRequest,
     session: AsyncSession = Depends(get_db_session),
+    principal: CurrentPrincipal = Depends(require_roles("operator", "admin")),
 ) -> HumanHandoffView:
+    tenant_id, _ = authorize_identity(principal, tenant_id=request.tenant_id)
+    operator_id = authorize_actor(principal, actor_id=request.operator_id)
     service = HumanSupportService(session)
     item = await service.confirm_resolution(
-        tenant_id=request.tenant_id,
+        tenant_id=tenant_id,
         handoff_id=handoff_id,
-        operator_id=request.operator_id,
+        operator_id=operator_id,
         expected_version=request.expected_version,
     )
     await session.commit()

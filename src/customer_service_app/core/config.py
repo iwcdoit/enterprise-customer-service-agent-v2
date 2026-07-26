@@ -144,7 +144,10 @@ class Settings(BaseSettings):
 
     jwt_secret_key: str = ""
     jwt_algorithm: str = "HS256"
+    jwt_issuer: str = ""
+    jwt_audience: str = ""
     access_token_expire_minutes: int = 60
+    security_enabled: bool = False
 
     @property
     def cors_origins(self) -> list[str]:

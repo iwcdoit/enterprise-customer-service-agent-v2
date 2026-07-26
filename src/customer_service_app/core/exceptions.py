@@ -43,3 +43,10 @@ class PermissionDeniedError(AppError):
 
     status_code = 403
     code = "permission_denied"
+
+
+class AuthenticationError(AppError):
+    """请求未携带有效身份凭证。"""
+
+    status_code = 401
+    code = "authentication_required"
